@@ -4,12 +4,11 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
   type Connection,
   type EdgeMouseHandler,
   type NodeChange,
   type NodeMouseHandler,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import ELK from "elkjs/lib/elk.bundled.js";
 import {
@@ -71,11 +70,7 @@ const ELKConstructor = ELK as unknown as new () => {
 };
 
 export function SchemaCanvas(props: SchemaCanvasProps) {
-  return (
-    <ReactFlowProvider>
-      <SchemaCanvasInner {...props} />
-    </ReactFlowProvider>
-  );
+  return <SchemaCanvasInner {...props} />;
 }
 
 function SchemaCanvasInner({
@@ -150,10 +145,25 @@ function SchemaCanvasInner({
     writable ? onSaveAnnotations : undefined,
     annotationRevision,
   );
-  const { fitView, screenToFlowPosition } = useReactFlow<
-    CanvasNode,
-    CanvasEdge
+  const [reactFlow, setReactFlow] = useState<
+    ReactFlowInstance<CanvasNode, CanvasEdge> | undefined
   >();
+  const fitView = useCallback(
+    (
+      options?: Parameters<
+        ReactFlowInstance<CanvasNode, CanvasEdge>["fitView"]
+      >[0],
+    ) => reactFlow?.fitView(options) ?? Promise.resolve(false),
+    [reactFlow],
+  );
+  const screenToFlowPosition = useCallback(
+    (
+      position: Parameters<
+        ReactFlowInstance<CanvasNode, CanvasEdge>["screenToFlowPosition"]
+      >[0],
+    ) => reactFlow?.screenToFlowPosition(position) ?? position,
+    [reactFlow],
+  );
   const focused = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -243,7 +253,7 @@ function SchemaCanvasInner({
   );
 
   useEffect(() => {
-    if (focused.current || !initialTableId) return;
+    if (focused.current || !initialTableId || !reactFlow) return;
     if (!model.nodes.some((node) => node.id === initialTableId)) return;
     focused.current = true;
     requestAnimationFrame(() => {
@@ -253,7 +263,7 @@ function SchemaCanvasInner({
         maxZoom: 1.2,
       });
     });
-  }, [fitView, initialTableId, model.nodes]);
+  }, [fitView, initialTableId, model.nodes, reactFlow]);
 
   const updateLayout = useCallback(
     (recipe: (current: SchemaLayout) => SchemaLayout, save = true) => {
@@ -652,6 +662,7 @@ function SchemaCanvasInner({
       ) : null}
 
       <ReactFlow<CanvasNode, CanvasEdge>
+        onInit={setReactFlow}
         nodes={model.nodes}
         edges={model.edges}
         nodeTypes={nodeTypes}
