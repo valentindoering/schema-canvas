@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+.env.*
+*.log
+playwright-report/
+test-results/
+example-dist/
+*.tgz
+*.private.md
+.handoff/

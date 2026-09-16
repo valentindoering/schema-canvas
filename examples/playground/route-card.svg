@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" role="img" aria-labelledby="title description">
+  <title id="title">Fictional airship route card</title>
+  <desc id="description">A simple map showing two sky ports connected by a curved route.</desc>
+  <rect width="600" height="360" fill="#f8fafc"/>
+  <path d="M110 250 C220 80 380 80 500 200" fill="none" stroke="#2563eb" stroke-width="12" stroke-linecap="round" stroke-dasharray="18 22"/>
+  <circle cx="110" cy="250" r="30" fill="#0f172a"/>
+  <circle cx="500" cy="200" r="30" fill="#0f172a"/>
+  <path d="M278 112l70 25-58 18-20 45-13-55-44-20 53-3z" fill="#f59e0b" stroke="#92400e" stroke-width="5" stroke-linejoin="round"/>
+  <text x="58" y="310" fill="#0f172a" font-family="system-ui, sans-serif" font-size="28">North Quay</text>
+  <text x="430" y="260" fill="#0f172a" font-family="system-ui, sans-serif" font-size="28">Cloudrest</text>
+</svg>

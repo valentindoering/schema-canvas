@@ -1,0 +1,7 @@
+dist
+coverage
+node_modules
+*.tgz
+pnpm-lock.yaml
+playwright-report
+test-results
