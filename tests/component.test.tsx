@@ -20,6 +20,38 @@ vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(cleanup);
 
 describe("SchemaCanvas", () => {
+  it("follows table focus changes without remounting or losing a queued annotation", async () => {
+    const save = vi.fn();
+    const { container, rerender } = render(
+      <SchemaCanvas
+        graph={graph}
+        layout={layout}
+        writable
+        initialTableId="accounts"
+        onSaveAnnotations={save}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    rerender(
+      <SchemaCanvas
+        graph={graph}
+        layout={layout}
+        writable
+        initialTableId="projects"
+        onSaveAnnotations={save}
+      />,
+    );
+    expect(
+      container.querySelector(".schema-canvas__editor > header > strong")
+        ?.textContent,
+    ).toBe("Projects");
+    expect(
+      container.querySelectorAll(".schema-canvas__annotation-card--note"),
+    ).toHaveLength(1);
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls.at(-1)?.[0].value).toHaveLength(1);
+  });
+
   it("resolves an asset-only image replacement immediately and saves only its asset", async () => {
     const save = vi.fn();
     const { container } = render(

@@ -169,6 +169,11 @@ function SchemaCanvasInner({
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => setLayout(layoutProp), [layoutProp]);
+  useEffect(() => {
+    focused.current = false;
+    setSelectedNodeId(initialTableId ?? null);
+    setSelectedEdgeId(null);
+  }, [initialTableId]);
   useEffect(
     () => setAnnotations(hydrateImages(annotationsProp, resolveImage)),
     [annotationsProp, resolveImage],

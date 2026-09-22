@@ -78,6 +78,9 @@ The host can provide custom views, labels, feature switches, image upload and
 resolution callbacks, default field density, and save callbacks. It remains
 responsible for deciding who may load or edit the diagram.
 
+Changing `initialTableId` selects and focuses that table without remounting the
+canvas or discarding pending saves, so hosts can use it for route navigation.
+
 Every table in `graph` renders immediately. Tables without saved coordinates
 appear in a vertical column to the right of the saved diagram, with spacing
 based on their height. Existing table and annotation positions stay untouched.
