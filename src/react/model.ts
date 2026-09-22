@@ -75,11 +75,18 @@ export function buildCanvasModel(
 ) {
   const tableIds = new Set(options.view.tableIds);
   const edgeIds = new Set(options.view.edgeIds);
+  const fallbackPositions = unpositionedPositions(
+    graph,
+    layout,
+    annotations,
+    options.nodeDimensions,
+  );
   const tableNodes: CanvasNode[] = graph.tables
     .filter((table) => tableIds.has(table.id))
-    .map((table, index) => {
+    .map((table) => {
       const entry = layout[table.id];
-      const fallback = fallbackPosition(index);
+      const measured = options.nodeDimensions?.[table.id];
+      const fallback = fallbackPositions.get(table.id)!;
       const fieldDisplay =
         entry?.fieldDisplay ??
         (typeof options.defaultFieldDisplay === "function"
@@ -89,6 +96,7 @@ export function buildCanvasModel(
         id: table.id,
         type: "schemaTable",
         position: entry ? { x: entry.x, y: entry.y } : fallback,
+        ...(measured ? { measured } : {}),
         data: {
           table,
           appearance: entry?.appearance ?? "standard",
@@ -280,10 +288,54 @@ export function inferEdgePorts(
 }
 
 export function fallbackPosition(index: number) {
-  return { x: (index % 4) * 360, y: Math.floor(index / 4) * 280 };
+  return { x: 0, y: index * 280 };
 }
 
 const DEFAULT_TABLE_SIZE = { width: 280, height: 160 };
+
+function unpositionedPositions(
+  graph: SchemaGraph,
+  layout: SchemaLayout,
+  annotations: readonly SchemaAnnotation[],
+  dimensions: BuildCanvasModelOptions["nodeDimensions"],
+) {
+  const placed = graph.tables.filter((table) => layout[table.id]);
+  const right = Math.max(
+    0,
+    ...placed.map(
+      (table) =>
+        layout[table.id]!.x +
+        (dimensions?.[table.id]?.width ?? DEFAULT_TABLE_SIZE.width),
+    ),
+    ...annotations.map((annotation) => annotation.x + annotation.width),
+  );
+  const x = placed.length || annotations.length ? right + 160 : 0;
+  let y = Math.min(
+    0,
+    ...placed.map((table) => layout[table.id]!.y),
+    ...annotations.map((annotation) => annotation.y),
+  );
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const table of graph.tables) {
+    if (layout[table.id]) continue;
+    positions.set(table.id, { x, y });
+    const rows = table.fields.reduce(
+      (count, field) =>
+        count +
+        1 +
+        (field.discriminatedUnion?.variants.reduce(
+          (total, variant) => total + 1 + variant.fields.length,
+          0,
+        ) ?? 0),
+      0,
+    );
+    const height =
+      dimensions?.[table.id]?.height ??
+      Math.max(DEFAULT_TABLE_SIZE.height, 60 + rows * 24);
+    y += height + 80;
+  }
+  return positions;
+}
 const portSides: SchemaPortSide[] = [
   "top",
   "right",

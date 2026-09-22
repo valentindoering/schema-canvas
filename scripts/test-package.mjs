@@ -1,12 +1,12 @@
 import { access, readFile, stat } from "node:fs/promises";
 
 const publicModules = [
-  "@valentindoering/schema-canvas/core",
-  "@valentindoering/schema-canvas/react",
-  "@valentindoering/schema-canvas/server/convex",
-  "@valentindoering/schema-canvas/server/postgres",
-  "@valentindoering/schema-canvas/server/json-store",
-  "@valentindoering/schema-canvas/server/layout",
+  "schema-canvas/core",
+  "schema-canvas/react",
+  "schema-canvas/server/convex",
+  "schema-canvas/server/postgres",
+  "schema-canvas/server/json-store",
+  "schema-canvas/server/layout",
 ];
 
 for (const specifier of publicModules) {

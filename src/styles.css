@@ -317,6 +317,25 @@
   border-bottom: 0;
 }
 
+.schema-canvas__union {
+  padding: 0 8px 6px 16px;
+  font-family: var(--schema-canvas-font-mono, monospace);
+  font-size: 10px;
+}
+
+.schema-canvas__union-heading {
+  padding: 6px 4px 3px;
+  color: #475569;
+}
+
+.schema-canvas__union-heading strong,
+.schema-canvas__variant-badge {
+  border-radius: 3px;
+  background: #ede9fe;
+  color: #5b21b6;
+  padding: 2px 4px;
+}
+
 .schema-canvas__field code {
   overflow: hidden;
   color: var(--schema-canvas-text-muted);

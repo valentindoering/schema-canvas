@@ -91,7 +91,7 @@ export function parseSchemaAnnotations(
       const storedSrc = optionalString(
         item.src ?? item.imageSrc,
         `Annotation \"${id}\" src must be a string.`,
-        2000,
+        8 * 1024 * 1024,
       );
       const src = (asset && options.resolveImage?.(asset)) || storedSrc;
       const annotation: SchemaAnnotation = {

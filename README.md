@@ -10,6 +10,7 @@ are packed, tested, inspected, and consumer-verified before publication.
 ## Capabilities
 
 - A framework-neutral graph, layout, annotation, and view model.
+- Discriminated-union branches with member fields and branch-specific foreign-key arrows.
 - A React Flow canvas with table selection, focus, minimap, fit view, grid
   snapping, and optional ELK layout.
 - Full and concise field views, temporary expansion, field highlights, table
@@ -17,6 +18,7 @@ are packed, tested, inspected, and consumer-verified before publication.
   explicit edge muting, and edge visibility controls.
 - Frames, titled notes, free text, and image annotations with direct on-canvas
   resize. Their numeric dimensions remain part of the serialized model.
+- Image replacement, visible upload errors, and aspect-ratio-preserving image resize.
 - Read-only and writable modes controlled by the host.
 - Debounced, serialized, latest-value save queues with optional opaque
   revisions.
@@ -35,13 +37,13 @@ and deployment-specific read/write rules.
 The exports are:
 
 ```text
-@valentindoering/schema-canvas/core
-@valentindoering/schema-canvas/react
-@valentindoering/schema-canvas/server/convex
-@valentindoering/schema-canvas/server/postgres
-@valentindoering/schema-canvas/server/json-store
-@valentindoering/schema-canvas/server/layout
-@valentindoering/schema-canvas/styles.css
+schema-canvas/core
+schema-canvas/react
+schema-canvas/server/convex
+schema-canvas/server/postgres
+schema-canvas/server/json-store
+schema-canvas/server/layout
+schema-canvas/styles.css
 ```
 
 Browser exports do not import Node.js modules. Source parsing and filesystem
@@ -50,8 +52,8 @@ persistence are available only through `server/*` subpaths.
 ## React usage
 
 ```tsx
-import { SchemaCanvas } from "@valentindoering/schema-canvas/react";
-import "@valentindoering/schema-canvas/styles.css";
+import { SchemaCanvas } from "schema-canvas/react";
+import "schema-canvas/styles.css";
 
 export function Diagram({ graph, layout, writable }) {
   return (
@@ -77,18 +79,23 @@ resolution callbacks, default field density, and save callbacks. It remains
 responsible for deciding who may load or edit the diagram.
 
 Every table in `graph` renders immediately. Tables without saved coordinates
-receive deterministic fallback positions and can be dragged when `writable` is
-true. The default canvas has no permanent action toolbar or new-table tray.
+appear in a vertical column to the right of the saved diagram, with spacing
+based on their height. Existing table and annotation positions stay untouched.
+These fallback positions are not saved until the table is edited or moved.
+Tables can be dragged when `writable` is true. The default canvas has no
+permanent action toolbar or new-table tray.
 Table and edge editors appear after selection, and annotation actions stay in
 a compact icon toolbar at the lower left. Selected annotations resize through
 drag handles on the canvas. Hosts can enable the optional canvas toolbar or
 unpositioned-table tray through feature switches when their route needs them.
+Automatic arrangement requires explicit `autoLayout: true`; it is disabled by
+default. Set `navigationControls: false` to hide the zoom/fit button panel.
 
 ## Source adapters
 
 ```ts
-import { parseConvexSchema } from "@valentindoering/schema-canvas/server/convex";
-import { readPostgresSchemaDirectory } from "@valentindoering/schema-canvas/server/postgres";
+import { parseConvexSchema } from "schema-canvas/server/convex";
+import { readPostgresSchemaDirectory } from "schema-canvas/server/postgres";
 
 const convexGraph = parseConvexSchema("convex/schema.ts");
 const postgresGraph = await readPostgresSchemaDirectory("database/tables");
@@ -113,10 +120,7 @@ An application with another schema format can convert it to the public graph
 model. No parser registration or package fork is required:
 
 ```ts
-import {
-  validateSchemaGraph,
-  type SchemaGraph,
-} from "@valentindoering/schema-canvas/core";
+import { validateSchemaGraph, type SchemaGraph } from "schema-canvas/core";
 
 export function adaptMySchema(input: MySchema): SchemaGraph {
   return validateSchemaGraph({
@@ -137,8 +141,8 @@ router or code editor.
 ## JSON persistence
 
 ```ts
-import { parseSchemaLayout } from "@valentindoering/schema-canvas/core";
-import { createJsonStore } from "@valentindoering/schema-canvas/server/json-store";
+import { parseSchemaLayout } from "schema-canvas/core";
+import { createJsonStore } from "schema-canvas/server/json-store";
 
 const store = createJsonStore({
   filePath: "data/schema.layout.json",

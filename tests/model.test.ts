@@ -8,6 +8,32 @@ import {
 import { graph, layout } from "./fixtures.js";
 
 describe("React canvas model", () => {
+  it("renders all unpositioned tables in a non-overlapping vertical column without saving them", () => {
+    const empty = {};
+    const model = build(empty, { accounts: { width: 280, height: 900 } });
+    expect(model.nodes).toHaveLength(graph.tables.length);
+    const [first, second] = model.nodes;
+    expect(first!.position.x).toBe(second!.position.x);
+    expect(second!.position.y).toBeGreaterThan(first!.position.y + 900);
+    expect(model.unpositionedTableIds).toEqual(["accounts", "projects"]);
+    expect(empty).toEqual({});
+  });
+
+  it("stages new tables to the right without moving saved tables", () => {
+    const saved = { accounts: { x: 1400, y: -600 } };
+    const model = build(saved, { accounts: { width: 400, height: 300 } });
+    expect(model.nodes[0]!.position).toEqual(saved.accounts);
+    expect(model.nodes[1]!.position.x).toBeGreaterThan(1800);
+    expect(model.nodes[1]!.position.y).toBe(-600);
+    expect(model.unpositionedTableIds).toEqual(["projects"]);
+    expect(saved).toEqual({ accounts: { x: 1400, y: -600 } });
+  });
+  it("retains measured union table sizes for automatic layout", () => {
+    const model = build(layout, { projects: { width: 280, height: 900 } });
+    expect(
+      model.nodes.find((node) => node.id === "projects")?.measured,
+    ).toEqual({ width: 280, height: 900 });
+  });
   it("uses direct edges and automatically chooses the nearest table sides", () => {
     const horizontal = build(layout).edges[0]!;
     expect(horizontal).toMatchObject({
@@ -91,7 +117,10 @@ describe("React canvas model", () => {
   });
 });
 
-function build(schemaLayout: typeof layout) {
+function build(
+  schemaLayout: typeof layout,
+  nodeDimensions: Record<string, { width: number; height: number }> = {},
+) {
   return buildCanvasModel(graph, schemaLayout, [], {
     view: {
       id: "all",
@@ -100,6 +129,7 @@ function build(schemaLayout: typeof layout) {
       edgeIds: graph.edges.map((edge) => edge.id),
     },
     expandedTableIds: new Set(),
+    nodeDimensions,
     writable: true,
     conciseFieldCount: 8,
     automaticMuteDistance: 10_000,

@@ -1,5 +1,7 @@
 import ts from "typescript";
 
+import type { SchemaDiscriminatedUnion } from "../../core/types.js";
+
 export type ForeignKey = { targetTable: string; optional: boolean };
 export type ValidatorDeclaration = {
   sourceFile: ts.SourceFile;
@@ -81,7 +83,7 @@ export function summarizeValidator(
     }
   }
   if (expandIdentifiers && ts.isIdentifier(expression)) {
-    const declaration = declarations.get(expression.text);
+    const declaration = lookupDeclaration(expression, declarations);
     if (declaration && !resolving.has(expression.text)) {
       return summarizeValidator(
         declaration.initializer,
@@ -108,7 +110,7 @@ export function isOptionalValidator(
     return true;
   }
   if (ts.isIdentifier(expression)) {
-    const declaration = declarations.get(expression.text);
+    const declaration = lookupDeclaration(expression, declarations);
     if (declaration && !resolving.has(expression.text)) {
       return isOptionalValidator(
         declaration.initializer,
@@ -159,7 +161,7 @@ export function findForeignKeys(
     );
   }
   if (ts.isIdentifier(node)) {
-    const declaration = declarations.get(node.text);
+    const declaration = lookupDeclaration(node, declarations);
     if (declaration && !resolving.has(node.text)) {
       return findForeignKeys(
         declaration.initializer,
@@ -191,7 +193,10 @@ export function isIdentifierCall(expression: ts.CallExpression, name: string) {
   );
 }
 
-function isValidatorCall(expression: ts.CallExpression, methodName: string) {
+export function isValidatorCall(
+  expression: ts.CallExpression,
+  methodName: string,
+) {
   return (
     ts.isPropertyAccessExpression(expression.expression) &&
     ts.isIdentifier(expression.expression.expression) &&
@@ -249,7 +254,7 @@ function summarizeObject(
   );
 }
 
-function collectObjectValidators(
+export function collectObjectValidators(
   object: ts.ObjectLiteralExpression,
   declarations: ReadonlyMap<string, ValidatorDeclaration>,
   resolving: ReadonlySet<string>,
@@ -280,6 +285,10 @@ function collectObjectValidators(
         spread.resolving,
         validators,
       );
+    else
+      throw new Error(
+        `Cannot resolve nested field spread: ${property.expression.getText()}.`,
+      );
   }
   return validators;
 }
@@ -296,7 +305,7 @@ function resolveObjectLiteral(
     return { object: expression, resolving };
   if (!ts.isIdentifier(expression) || resolving.has(expression.text))
     return undefined;
-  const declaration = declarations.get(expression.text);
+  const declaration = lookupDeclaration(expression, declarations);
   return declaration
     ? resolveObjectLiteral(
         declaration.initializer,
@@ -306,7 +315,7 @@ function resolveObjectLiteral(
     : undefined;
 }
 
-function unwrapExpression(expression: ts.Expression): ts.Expression {
+export function unwrapExpression(expression: ts.Expression): ts.Expression {
   let current = expression;
   while (
     ts.isAsExpression(current) ||
@@ -327,4 +336,122 @@ export function propertyName(name: ts.PropertyName, sourceFile: ts.SourceFile) {
     ts.isNumericLiteral(name)
     ? name.text
     : name.getText(sourceFile);
+}
+
+export function resolveValidator(
+  expression: ts.Expression,
+  declarations: ReadonlyMap<string, ValidatorDeclaration>,
+  seen = new Set<string>(),
+): ts.Expression {
+  expression = unwrapExpression(expression);
+  if (!ts.isIdentifier(expression)) return expression;
+  const key = `${expression.getSourceFile().fileName}:${expression.text}`;
+  if (seen.has(key)) throw new Error(`Cyclic validator ${expression.text}.`);
+  const declaration = lookupDeclaration(expression, declarations);
+  return declaration
+    ? resolveValidator(
+        declaration.initializer,
+        declarations,
+        new Set([...seen, key]),
+      )
+    : expression;
+}
+
+export function lookupDeclaration(
+  node: ts.Identifier,
+  declarations: ReadonlyMap<string, ValidatorDeclaration>,
+) {
+  return declarations.get(`${node.getSourceFile().fileName}:${node.text}`);
+}
+
+export function objectVariants(
+  expression: ts.Expression,
+  declarations: ReadonlyMap<string, ValidatorDeclaration>,
+): ts.ObjectLiteralExpression[] {
+  expression = resolveValidator(expression, declarations);
+  if (ts.isObjectLiteralExpression(expression)) return [expression];
+  if (ts.isCallExpression(expression)) {
+    if (isValidatorCall(expression, "object") && expression.arguments[0])
+      return objectVariants(expression.arguments[0], declarations);
+    if (isValidatorCall(expression, "union"))
+      return expression.arguments.flatMap((item) =>
+        objectVariants(item, declarations),
+      );
+  }
+  throw new Error(`Cannot resolve table fields: ${expression.getText()}.`);
+}
+
+export function summarizeDiscriminatedUnion(
+  expression: ts.Expression,
+  declarations: ReadonlyMap<string, ValidatorDeclaration>,
+): SchemaDiscriminatedUnion | undefined {
+  expression = resolveValidator(expression, declarations);
+  if (!ts.isCallExpression(expression)) return undefined;
+  if (isValidatorCall(expression, "optional") && expression.arguments[0])
+    return summarizeDiscriminatedUnion(expression.arguments[0], declarations);
+  if (!isValidatorCall(expression, "union") || expression.arguments.length < 2)
+    return undefined;
+  const objects = expression.arguments.map((item) => {
+    const value = resolveValidator(item, declarations);
+    if (!ts.isCallExpression(value) || !isValidatorCall(value, "object"))
+      return undefined;
+    const argument = value.arguments[0];
+    if (!argument) return undefined;
+    const object = resolveValidator(argument, declarations);
+    return ts.isObjectLiteralExpression(object) ? object : undefined;
+  });
+  if (objects.some((object) => !object)) return undefined;
+  const maps = objects.map((object) =>
+    collectObjectValidators(object!, declarations, new Set()),
+  );
+  const literal = (node: ts.Expression | undefined): string | undefined => {
+    if (!node) return undefined;
+    const value = resolveValidator(node, declarations);
+    if (!ts.isCallExpression(value) || !isValidatorCall(value, "literal"))
+      return undefined;
+    const argument = value.arguments[0];
+    if (!argument) return undefined;
+    if (ts.isStringLiteral(argument)) return argument.text;
+    if (
+      ts.isNumericLiteral(argument) ||
+      argument.kind === ts.SyntaxKind.TrueKeyword ||
+      argument.kind === ts.SyntaxKind.FalseKeyword
+    )
+      return argument.getText();
+    return undefined;
+  };
+  const discriminator = [...maps[0]!.keys()].find((name) => {
+    const values = maps.map((map) => literal(map.get(name)));
+    return (
+      values.every((value) => value !== undefined) &&
+      new Set(values).size === values.length
+    );
+  });
+  if (!discriminator) return undefined;
+  return {
+    discriminator,
+    variants: maps.map((map) => ({
+      discriminatorValue: literal(map.get(discriminator))!,
+      fields: [...map]
+        .filter(([name]) => name !== discriminator)
+        .map(([name, value]) => ({
+          name,
+          type: summarizeValidator(
+            value,
+            value.getSourceFile(),
+            declarations,
+            new Set(),
+            true,
+          ),
+          optional: isOptionalValidator(value, declarations),
+          foreignKeyTargets: [
+            ...new Set(
+              findForeignKeys(value, false, declarations).map(
+                (key) => key.targetTable,
+              ),
+            ),
+          ],
+        })),
+    })),
+  };
 }

@@ -13,7 +13,17 @@ export type SchemaField = {
   primaryKey?: boolean;
   foreignKeyTargets: string[];
   arrowsDisabled?: boolean;
+  variants?: string[];
+  discriminatedUnion?: SchemaDiscriminatedUnion;
   metadata?: Readonly<Record<string, SchemaMetadataValue>>;
+};
+
+export type SchemaDiscriminatedUnion = {
+  discriminator: string;
+  variants: Array<{
+    discriminatorValue: string;
+    fields: SchemaField[];
+  }>;
 };
 
 export type SchemaTable = {

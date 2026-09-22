@@ -137,6 +137,7 @@ function SchemaCanvasInner({
     initialTableId ?? null,
   );
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [layoutSaveState, enqueueLayout] = useSaveChannel(
     writable ? onSaveLayout : undefined,
     layoutRevision,
@@ -390,6 +391,17 @@ function SchemaCanvasInner({
     [onSelectedTableChange, writable],
   );
 
+  const withTablePosition = useCallback(
+    (current: SchemaLayout, tableId: string): SchemaLayout => {
+      if (current[tableId]) return current;
+      const position = model.nodes.find(
+        (node) => node.id === tableId,
+      )?.position;
+      return position ? { ...current, [tableId]: { ...position } } : current;
+    },
+    [model.nodes],
+  );
+
   const onReconnect = useCallback(
     (edge: CanvasEdge, connection: Connection) => {
       if (!writable || !edge.data) return;
@@ -404,14 +416,18 @@ function SchemaCanvasInner({
       const target = portSideFromHandle(connection.targetHandle, "target");
       if (!source || !target) return;
       updateLayout((current) =>
-        setSchemaEdgeLayout(current, schemaEdge, {
-          ...(getSchemaEdgeLayout(current, schemaEdge) ?? {}),
-          source,
-          target,
-        }),
+        setSchemaEdgeLayout(
+          withTablePosition(current, schemaEdge.source),
+          schemaEdge,
+          {
+            ...(getSchemaEdgeLayout(current, schemaEdge) ?? {}),
+            source,
+            target,
+          },
+        ),
       );
     },
-    [updateLayout, writable],
+    [updateLayout, writable, withTablePosition],
   );
 
   const arrange = useCallback(async () => {
@@ -485,7 +501,7 @@ function SchemaCanvasInner({
         let next: SchemaLayout = {
           ...current,
           [tableId]: {
-            ...(current[tableId] ?? { x: 0, y: 0 }),
+            ...withTablePosition(current, tableId)[tableId]!,
             hideArrows: false,
             hideIncomingArrows: false,
             hideMutedIncomingArrows: false,
@@ -504,7 +520,7 @@ function SchemaCanvasInner({
         return next;
       });
     },
-    [graph.edges, updateLayout],
+    [graph.edges, updateLayout, withTablePosition],
   );
 
   const addAnnotation = useCallback(
@@ -543,14 +559,21 @@ function SchemaCanvasInner({
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
-      if (!file || !onUploadImage) return;
-      const uploaded = await onUploadImage(file);
-      addAnnotation("image", {
-        asset: uploaded.asset,
-        ...(uploaded.src ? { src: uploaded.src } : {}),
-      });
+      if (!file || !onUploadImage || !writable) return;
+      setImageUploadError(null);
+      try {
+        const uploaded = await onUploadImage(file);
+        addAnnotation("image", {
+          asset: uploaded.asset,
+          ...(uploaded.src ? { src: uploaded.src } : {}),
+        });
+      } catch (error) {
+        setImageUploadError(
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     },
-    [addAnnotation, onUploadImage],
+    [addAnnotation, onUploadImage, writable],
   );
 
   const selectedTable = selectedNodeId
@@ -711,7 +734,9 @@ function SchemaCanvasInner({
           />
         ) : null}
         {features.minimap ? <MiniMap pannable zoomable /> : null}
-        <Controls position="top-left" showInteractive={false} />
+        {features.navigationControls ? (
+          <Controls position="top-left" showInteractive={false} />
+        ) : null}
       </ReactFlow>
 
       {features.annotations && writable && !features.canvasToolbar ? (
@@ -752,6 +777,7 @@ function SchemaCanvasInner({
       ) : null}
 
       <div className="schema-canvas__save-status-overlay">
+        {imageUploadError ? <span role="alert">{imageUploadError}</span> : null}
         <SaveStatus state={saveState} writable={writable} labels={labels} />
       </div>
 
@@ -760,7 +786,7 @@ function SchemaCanvasInner({
           tableId={selectedTable.id}
           tableLabel={selectedTable.label}
           fields={selectedTable.fields.map((field) => field.name)}
-          entry={layout[selectedTable.id] ?? { x: 0, y: 0 }}
+          entry={withTablePosition(layout, selectedTable.id)[selectedTable.id]!}
           labels={labels}
           onShowAllEdges={() => showAllEdgesForTable(selectedTable.id)}
           details={renderTableDetails?.(selectedTable)}
@@ -768,7 +794,9 @@ function SchemaCanvasInner({
             updateLayout((current) => ({
               ...current,
               [selectedTable.id]: {
-                ...(current[selectedTable.id] ?? { x: 0, y: 0 }),
+                ...withTablePosition(current, selectedTable.id)[
+                  selectedTable.id
+                ]!,
                 ...change,
               },
             }))
@@ -783,10 +811,14 @@ function SchemaCanvasInner({
           labels={labels}
           onChange={(change) =>
             updateLayout((current) =>
-              setSchemaEdgeLayout(current, selectedEdge, {
-                ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
-                ...change,
-              }),
+              setSchemaEdgeLayout(
+                withTablePosition(current, selectedEdge.source),
+                selectedEdge,
+                {
+                  ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
+                  ...change,
+                },
+              ),
             )
           }
           onClose={() => setSelectedEdgeId(null)}
@@ -796,6 +828,7 @@ function SchemaCanvasInner({
         <AnnotationEditor
           annotation={selectedAnnotation}
           labels={labels}
+          onUploadImage={onUploadImage}
           onChange={(change) =>
             updateAnnotations((current) =>
               current.map((annotation) =>
@@ -1020,16 +1053,20 @@ function EdgeEditor({
 function AnnotationEditor({
   annotation,
   labels,
+  onUploadImage,
   onChange,
   onDelete,
   onClose,
 }: {
   annotation: SchemaAnnotation;
   labels: SchemaCanvasLabels;
+  onUploadImage: SchemaCanvasProps["onUploadImage"];
   onChange: (change: Partial<SchemaAnnotation>) => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   return (
     <Editor title={annotation.label} labels={labels} onClose={onClose}>
       <TextField
@@ -1037,6 +1074,34 @@ function AnnotationEditor({
         value={annotation.label}
         onChange={(label) => onChange({ label })}
       />
+      {annotation.kind === "image" && onUploadImage ? (
+        <label className="schema-canvas__form-field">
+          <span>{labels.uploadImage}</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            disabled={uploading}
+            onChange={async (event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (!file) return;
+              setUploading(true);
+              setUploadError(null);
+              try {
+                const uploaded = await onUploadImage(file);
+                onChange({ asset: uploaded.asset, src: uploaded.src ?? "" });
+              } catch (error) {
+                setUploadError(
+                  error instanceof Error ? error.message : String(error),
+                );
+              } finally {
+                setUploading(false);
+              }
+            }}
+          />
+          {uploadError ? <span role="alert">{uploadError}</span> : null}
+        </label>
+      ) : null}
       {annotation.kind === "note" || annotation.kind === "text" ? (
         <TextField
           label={labels.text}

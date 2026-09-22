@@ -34,6 +34,17 @@ test("writable mode supports direct annotation resize and explicit deletion", as
   expect(annotationBox).not.toBeNull();
   expect(handleBox).not.toBeNull();
   if (annotationBox && handleBox) {
+    expect(
+      await resizeHandle.evaluate((handle) => {
+        const box = handle.getBoundingClientRect();
+        return (
+          document.elementFromPoint(
+            box.x + box.width / 4,
+            box.y + (box.height * 3) / 4,
+          ) === handle
+        );
+      }),
+    ).toBe(true);
     await resizeHandle.dragTo(page.locator("body"), {
       sourcePosition: {
         x: handleBox.width / 2,

@@ -12,6 +12,9 @@ import {
   isIdentifierCall,
   isOptionalValidator,
   propertyName,
+  lookupDeclaration,
+  objectVariants,
+  summarizeDiscriminatedUnion,
   summarizeValidator,
   type ForeignKey,
   type ValidatorDeclaration,
@@ -160,17 +163,46 @@ export function parseConvexSchema(
           );
           continue;
         }
-        edges.push({
-          id: `edge-${table.id}.${field.name}.${target}`,
-          source: table.id,
-          target,
-          field: field.name,
-          optional:
-            (
-              field.metadata?.foreignKeyOptionality as
-                Record<string, boolean> | undefined
-            )?.[target] ?? field.optional,
-        });
+        const occurrences = field.discriminatedUnion?.variants.flatMap(
+          (variant) =>
+            variant.fields
+              .filter(
+                (member) =>
+                  member.type === `id<${target}>` &&
+                  member.foreignKeyTargets.includes(target),
+              )
+              .map((member) => ({
+                field: `${field.name}(${field.discriminatedUnion!.discriminator}=${variant.discriminatorValue}).${member.name}`,
+                optional: field.optional || member.optional,
+              })),
+        );
+        for (const occurrence of occurrences?.length
+          ? occurrences
+          : [{ field: field.name, optional: false }])
+          edges.push({
+            id: `edge-${table.id}.${occurrence.field}.${target}`,
+            source: table.id,
+            target,
+            field: occurrence.field,
+            ...(occurrence.field !== field.name
+              ? {
+                  metadata: {
+                    layoutAliases: [
+                      `${field.name}->${target}`,
+                      `edge-${table.id}.${field.name}.${target}`,
+                      field.name,
+                    ],
+                  },
+                }
+              : {}),
+            optional:
+              occurrence.optional ||
+              ((
+                field.metadata?.foreignKeyOptionality as
+                  Record<string, boolean> | undefined
+              )?.[target] ??
+                field.optional),
+          });
       }
     }
   }
@@ -190,16 +222,17 @@ export function parseConvexSchema(
         entry.initializer,
         declarations,
       );
-      if (!argument) continue;
-      const fieldsObject = resolveObject(argument, declarations);
-      const fields = fieldsObject
-        ? parseFields(
-            fieldsObject.object,
-            fieldsObject.sourceFile,
-            declarations,
-            entry.name,
-          )
-        : [];
+      if (!argument)
+        throw new ConvexSchemaError([`Cannot resolve table ${entry.name}.`]);
+      const variants = objectVariants(argument, declarations);
+      const fieldVariants = variants.map((object) =>
+        parseFields(object, object.getSourceFile(), declarations, entry.name),
+      );
+      const union = summarizeDiscriminatedUnion(argument, declarations);
+      const fields = mergeFields(
+        fieldVariants,
+        union?.variants.map((variant) => variant.discriminatorValue),
+      );
       const group = options.tableGroup?.(entry.name);
       result.set(entry.name, {
         id: entry.name,
@@ -222,7 +255,10 @@ export function parseConvexSchema(
         ts.isSpreadAssignment(property) &&
         ts.isIdentifier(property.expression)
       ) {
-        const declaration = declarations.get(property.expression.text);
+        const declaration = lookupDeclaration(
+          property.expression,
+          declarations,
+        );
         return declaration?.object
           ? parseFields(
               declaration.object,
@@ -230,7 +266,11 @@ export function parseConvexSchema(
               declarations,
               tableId,
             )
-          : [];
+          : (() => {
+              throw new ConvexSchemaError([
+                `Cannot resolve field spread in ${tableId}.`,
+              ]);
+            })();
       }
       const assignment = ts.isPropertyAssignment(property)
         ? {
@@ -240,13 +280,15 @@ export function parseConvexSchema(
         : ts.isShorthandPropertyAssignment(property)
           ? {
               name: property.name.text,
-              value:
-                declarations.get(property.name.text)?.initializer ??
-                property.name,
+              value: property.name,
             }
           : undefined;
       if (!assignment) return [];
       const { name, value } = assignment;
+      const discriminatedUnion = summarizeDiscriminatedUnion(
+        value,
+        declarations,
+      );
       const keys = uniqueForeignKeys(
         findForeignKeys(value, false, declarations),
       );
@@ -265,6 +307,7 @@ export function parseConvexSchema(
             ts.isIdentifier(value),
           ),
           optional: isOptionalValidator(value, declarations),
+          ...(discriminatedUnion ? { discriminatedUnion } : {}),
           foreignKeyTargets: keys.map((key) => key.targetTable),
           arrowsDisabled:
             noArrowFields.has(name) ||
@@ -311,7 +354,7 @@ function collectDeclarationsRecursively(
     visited.add(filePath);
     const local = collectDeclarations(file);
     for (const [name, declaration] of local)
-      declarations.set(name, declaration);
+      declarations.set(`${filePath}:${name}`, declaration);
     if (!followImports) return;
     for (const statement of file.statements.filter(ts.isImportDeclaration)) {
       if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
@@ -338,8 +381,10 @@ function collectDeclarationsRecursively(
         for (const item of bindings.elements) {
           const sourceName = item.propertyName?.text ?? item.name.text;
           const declaration =
-            imported.get(sourceName) ?? declarations.get(sourceName);
-          if (declaration) declarations.set(item.name.text, declaration);
+            imported.get(sourceName) ??
+            declarations.get(`${importedPath}:${sourceName}`);
+          if (declaration)
+            declarations.set(`${filePath}:${item.name.text}`, declaration);
         }
       }
     }
@@ -394,8 +439,11 @@ function tableEntries(
 ): Array<{ name: string; initializer: ts.Expression }> {
   if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
     if (seen.has(property.expression.text)) return [];
-    const declaration = declarations.get(property.expression.text);
-    if (!declaration?.object) return [];
+    const declaration = lookupDeclaration(property.expression, declarations);
+    if (!declaration?.object)
+      throw new ConvexSchemaError([
+        `Cannot resolve table spread ${property.expression.text}.`,
+      ]);
     const next = new Set([...seen, property.expression.text]);
     return declaration.object.properties.flatMap((item) =>
       tableEntries(item, declaration.sourceFile, declarations, next),
@@ -418,7 +466,10 @@ function tableEntries(
 function resolveDefineTableArgument(
   expression: ts.Expression,
   declarations: Map<string, ValidatorDeclaration>,
+  seen = new Set<ts.Expression>(),
 ): ts.Expression | undefined {
+  if (seen.has(expression)) throw new Error("Cyclic table declaration.");
+  const nextSeen = new Set([...seen, expression]);
   expression = unwrapExpression(expression);
   if (ts.isCallExpression(expression)) {
     if (isIdentifierCall(expression, "defineTable"))
@@ -427,38 +478,76 @@ function resolveDefineTableArgument(
       return resolveDefineTableArgument(
         expression.expression.expression,
         declarations,
+        nextSeen,
       );
     }
   }
   if (ts.isIdentifier(expression)) {
-    const declaration = declarations.get(expression.text);
+    const declaration = lookupDeclaration(expression, declarations);
     return declaration
-      ? resolveDefineTableArgument(declaration.initializer, declarations)
+      ? resolveDefineTableArgument(
+          declaration.initializer,
+          declarations,
+          nextSeen,
+        )
       : undefined;
   }
   return undefined;
 }
 
-function resolveObject(
-  expression: ts.Expression,
-  declarations: Map<string, ValidatorDeclaration>,
-):
-  | { object: ts.ObjectLiteralExpression; sourceFile: ts.SourceFile }
-  | undefined {
-  expression = unwrapExpression(expression);
-  if (ts.isObjectLiteralExpression(expression)) {
+function mergeFields(
+  variants: SchemaField[][],
+  names?: string[],
+): SchemaField[] {
+  if (variants.length === 1) return variants[0]!;
+  const fields = [
+    ...new Set(
+      variants.flatMap((variant) => variant.map((field) => field.name)),
+    ),
+  ];
+  return fields.map((name) => {
+    const present = variants.flatMap((variant, index) => {
+      const field = variant.find((candidate) => candidate.name === name);
+      return field ? [{ field, index }] : [];
+    });
+    const targets = [
+      ...new Set(present.flatMap(({ field }) => field.foreignKeyTargets)),
+    ];
     return {
-      object: expression,
-      sourceFile: expression.getSourceFile(),
+      name,
+      type: [...new Set(present.map(({ field }) => field.type))].join(" | "),
+      optional:
+        present.length < variants.length ||
+        present.some(({ field }) => field.optional),
+      foreignKeyTargets: targets,
+      arrowsDisabled: present.every(({ field }) => field.arrowsDisabled),
+      ...(names && present.length < variants.length
+        ? { variants: present.map(({ index }) => names[index]!) }
+        : {}),
+      metadata: {
+        foreignKeyOptionality: Object.fromEntries(
+          targets.map((target) => [
+            target,
+            present.length < variants.length ||
+              present.some(
+                ({ field }) =>
+                  !field.foreignKeyTargets.includes(target) ||
+                  (field.metadata?.foreignKeyOptionality &&
+                    (
+                      field.metadata.foreignKeyOptionality as Record<
+                        string,
+                        boolean
+                      >
+                    )[target]),
+              ),
+          ]),
+        ),
+      },
+      ...(present.length === 1 && present[0]!.field.discriminatedUnion
+        ? { discriminatedUnion: present[0]!.field.discriminatedUnion }
+        : {}),
     };
-  }
-  if (ts.isIdentifier(expression)) {
-    const declaration = declarations.get(expression.text);
-    return declaration?.object
-      ? { object: declaration.object, sourceFile: declaration.sourceFile }
-      : undefined;
-  }
-  return undefined;
+  });
 }
 
 function unwrapExpression(expression: ts.Expression): ts.Expression {

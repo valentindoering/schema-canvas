@@ -1,6 +1,11 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
+import {
+  getSchemaEdgeLayout,
+  parseSchemaLayout,
+  setSchemaEdgeLayout,
+} from "../src/core/index.js";
 
 import {
   ConvexSchemaError,
@@ -9,6 +14,111 @@ import {
 } from "../src/server/convex/index.js";
 
 describe("Convex adapter", () => {
+  it("expands table unions and nested discriminated branches without domain-specific labels", () => {
+    const graph = parseConvexSchema("/schema.ts", {
+      sourceReader: reader(
+        new Map([
+          [
+            "/schema.ts",
+            `
+      const assignment = v.union(
+        v.object({ mode: v.literal("crew"), captain: v.id("accounts"), title: v.string() }),
+        v.object({ mode: v.literal("port"), keeper: v.id("accounts"), berth: v.number() })
+      );
+      export default defineSchema({
+        accounts: defineTable({ name: v.string() }),
+        voyages: defineTable({ assignment }),
+        vessels: defineTable(v.union(
+          v.object({ propulsion: v.literal("sail"), area: v.number() }),
+          v.object({ propulsion: v.literal("steam"), engineer: v.id("accounts") })
+        ))
+      });
+    `,
+          ],
+        ]),
+      ),
+    });
+    expect(graph.tables[1]?.fields[0]?.discriminatedUnion).toMatchObject({
+      discriminator: "mode",
+      variants: [
+        { discriminatorValue: "crew" },
+        { discriminatorValue: "port" },
+      ],
+    });
+    expect(graph.edges.map((edge) => edge.field)).toEqual([
+      "assignment(mode=crew).captain",
+      "assignment(mode=port).keeper",
+      "engineer",
+    ]);
+    expect(
+      graph.tables[2]?.fields.find((field) => field.name === "engineer"),
+    ).toMatchObject({ optional: true, variants: ["steam"] });
+    expect(graph.edges[2]?.optional).toBe(true);
+    for (const key of [
+      "assignment",
+      "assignment->accounts",
+      "edge-voyages.assignment.accounts",
+    ]) {
+      const saved = parseSchemaLayout(
+        {
+          voyages: {
+            x: 0,
+            y: 0,
+            foreignKeys: { [key]: { source: "left", targetTable: "accounts" } },
+          },
+        },
+        graph,
+      );
+      const changed = setSchemaEdgeLayout(saved, graph.edges[0]!, {
+        source: "right",
+      });
+      expect(getSchemaEdgeLayout(changed, graph.edges[0]!)?.source).toBe(
+        "right",
+      );
+      expect(getSchemaEdgeLayout(changed, graph.edges[1]!)?.source).toBe(
+        "left",
+      );
+    }
+  });
+
+  it("keeps identically named validators scoped to their modules", () => {
+    const sources = new Map([
+      [
+        "/schema.ts",
+        `import { first } from "./first"; import { second } from "./second";
+        export default defineSchema({ first, second });`,
+      ],
+      [
+        "/first.ts",
+        `const fields = { title: v.string() }; export const first = defineTable(fields);`,
+      ],
+      [
+        "/second.ts",
+        `const fields = { count: v.number() }; export const second = defineTable(fields);`,
+      ],
+    ]);
+    expect(
+      parseConvexSchema("/schema.ts", {
+        sourceReader: reader(sources),
+      }).tables.map((table) => table.fields[0]?.name),
+    ).toEqual(["title", "count"]);
+  });
+
+  it("rejects unresolved table union members instead of dropping their fields", () => {
+    expect(() =>
+      parseConvexSchema("/schema.ts", {
+        sourceReader: reader(
+          new Map([
+            [
+              "/schema.ts",
+              `export default defineSchema({ vessels: defineTable(v.union(v.object({ title: v.string() }), unknownVariant)) });`,
+            ],
+          ]),
+        ),
+      }),
+    ).toThrow(/Cannot resolve table fields/);
+  });
+
   it("parses split tables, validator aliases, unions, and optional relationships", () => {
     const sources = new Map([
       [

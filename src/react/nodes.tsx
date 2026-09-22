@@ -6,7 +6,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 
-import type { SchemaPortSide } from "../core/index.js";
+import type { SchemaField, SchemaPortSide } from "../core/index.js";
 import {
   handleId,
   visibleFields,
@@ -35,28 +35,38 @@ export function SchemaTableNode({ data, selected }: NodeProps<TableNode>) {
       </header>
       <ul className="schema-canvas__fields">
         {fields.map((field) => (
-          <li
-            key={field.name}
-            className={
-              data.highlightedFields.includes(field.name)
-                ? "schema-canvas__field schema-canvas__field--highlighted"
-                : field.foreignKeyTargets.length
-                  ? "schema-canvas__field schema-canvas__field--foreign-key"
-                  : "schema-canvas__field"
-            }
-          >
-            <span>
-              {field.name}
-              {field.optional ? "?" : ""}
-            </span>
-            {field.foreignKeyTargets.length ? (
-              <code className="schema-canvas__foreign-key-pill">
-                {field.arrowsDisabled ? "FK off" : "FK"} →{` `}
-                {field.foreignKeyTargets.join(", ")}
-              </code>
-            ) : (
-              <code>{field.type}</code>
-            )}
+          <li key={field.name}>
+            <div
+              className={
+                data.highlightedFields.includes(field.name)
+                  ? "schema-canvas__field schema-canvas__field--highlighted"
+                  : field.foreignKeyTargets.length
+                    ? "schema-canvas__field schema-canvas__field--foreign-key"
+                    : "schema-canvas__field"
+              }
+            >
+              <span>
+                {field.name}
+                {field.optional ? "?" : ""}
+              </span>
+              {field.variants?.map((variant) => (
+                <small className="schema-canvas__variant-badge" key={variant}>
+                  {variant}
+                </small>
+              ))}
+              {field.discriminatedUnion ? null : field.foreignKeyTargets
+                  .length ? (
+                <code className="schema-canvas__foreign-key-pill">
+                  {field.arrowsDisabled ? "FK off" : "FK"} →{` `}
+                  {field.foreignKeyTargets.join(", ")}
+                </code>
+              ) : (
+                <code>{field.type}</code>
+              )}
+            </div>
+            {field.discriminatedUnion ? (
+              <UnionBranches field={field} data={data} />
+            ) : null}
           </li>
         ))}
       </ul>
@@ -76,46 +86,124 @@ export function SchemaTableNode({ data, selected }: NodeProps<TableNode>) {
   );
 }
 
+function UnionBranches({
+  field,
+  data,
+}: {
+  field: SchemaField;
+  data: TableNodeData;
+}) {
+  const union = field.discriminatedUnion!;
+  return (
+    <div className="schema-canvas__union">
+      {union.variants.map((variant) => {
+        const references = variant.fields.filter(
+          (member) => member.foreignKeyTargets.length,
+        );
+        const scalars = variant.fields.filter(
+          (member) => !member.foreignKeyTargets.length,
+        );
+        const visible = data.expanded
+          ? variant.fields
+          : variant.fields.filter(
+              (member) =>
+                references.includes(member) ||
+                scalars.slice(0, 3).includes(member),
+            );
+        const hidden = variant.fields.length - visible.length;
+        return (
+          <section key={variant.discriminatorValue}>
+            <div className="schema-canvas__union-heading">
+              <span>{union.discriminator} = </span>
+              <strong>{variant.discriminatorValue}</strong>
+            </div>
+            {visible.map((member) => (
+              <div
+                className="schema-canvas__field"
+                key={member.name}
+                title={`${member.name}: ${member.type}`}
+              >
+                <span>
+                  {member.name}
+                  {member.optional ? "?" : ""}
+                </span>
+                <code
+                  className={
+                    member.foreignKeyTargets.length
+                      ? "schema-canvas__foreign-key-pill"
+                      : undefined
+                  }
+                >
+                  {member.foreignKeyTargets.length
+                    ? `${field.arrowsDisabled ? "FK off" : "FK"} → ${member.foreignKeyTargets.join(", ")}`
+                    : member.type}
+                </code>
+              </div>
+            ))}
+            {hidden ? (
+              <button
+                type="button"
+                className="schema-canvas__show-more nodrag"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  data.onToggleExpanded(data.table.id);
+                }}
+              >
+                {data.showMoreLabel} ({hidden})
+              </button>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SchemaAnnotationNode({
   data,
   selected,
 }: NodeProps<AnnotationNode>) {
   const { annotation } = data;
   return (
-    <article
-      className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}`}
-      style={
-        annotation.kind === "text" && annotation.fontSize
-          ? { fontSize: annotation.fontSize }
-          : undefined
-      }
-      aria-label={annotation.label}
-    >
+    <>
       <NodeResizer
         isVisible={selected && data.writable}
         minWidth={120}
         minHeight={80}
+        keepAspectRatio={annotation.kind === "image"}
         color="var(--schema-canvas-accent)"
         onResizeEnd={(_event, bounds) =>
           data.onResizeEnd(annotation.id, bounds)
         }
       />
-      {annotation.kind === "image" && annotation.src ? (
-        <img src={annotation.src} alt={annotation.label} draggable={false} />
-      ) : null}
-      {annotation.kind === "note" ? <strong>{annotation.label}</strong> : null}
-      {annotation.kind === "frame" ? (
-        <span className="schema-canvas__annotation-label">
-          {annotation.label}
-        </span>
-      ) : null}
-      {annotation.text ? <p>{annotation.text}</p> : null}
-      {annotation.kind === "image" ? (
-        <span className="schema-canvas__annotation-caption">
-          {annotation.label}
-        </span>
-      ) : null}
-    </article>
+      <article
+        className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}`}
+        style={
+          annotation.kind === "text" && annotation.fontSize
+            ? { fontSize: annotation.fontSize }
+            : undefined
+        }
+        aria-label={annotation.label}
+      >
+        {annotation.kind === "image" && annotation.src ? (
+          <img src={annotation.src} alt={annotation.label} draggable={false} />
+        ) : null}
+        {annotation.kind === "note" ? (
+          <strong>{annotation.label}</strong>
+        ) : null}
+        {annotation.kind === "frame" ? (
+          <span className="schema-canvas__annotation-label">
+            {annotation.label}
+          </span>
+        ) : null}
+        {annotation.text ? <p>{annotation.text}</p> : null}
+        {annotation.kind === "image" ? (
+          <span className="schema-canvas__annotation-caption">
+            {annotation.label}
+          </span>
+        ) : null}
+      </article>
+    </>
   );
 }
 

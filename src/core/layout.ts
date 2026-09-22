@@ -37,7 +37,10 @@ export function canonicalEdgeKey(edge: Pick<SchemaEdge, "field" | "target">) {
 }
 
 export function compatibleEdgeKeys(
-  edge: Pick<SchemaEdge, "id" | "field" | "target" | "sourceFields">,
+  edge: Pick<
+    SchemaEdge,
+    "id" | "field" | "target" | "sourceFields" | "metadata"
+  >,
 ) {
   return [
     canonicalEdgeKey(edge),
@@ -46,7 +49,15 @@ export function compatibleEdgeKeys(
     ),
     edge.id,
     edge.field,
+    ...inheritedLayoutAliases(edge),
   ];
+}
+
+function inheritedLayoutAliases(edge: Pick<SchemaEdge, "metadata">): string[] {
+  const aliases = edge.metadata?.layoutAliases;
+  return Array.isArray(aliases)
+    ? aliases.filter((alias): alias is string => typeof alias === "string")
+    : [];
 }
 
 export function getSchemaEdgeLayout(
@@ -74,7 +85,10 @@ export function setSchemaEdgeLayout(
 ): SchemaLayout {
   const table = layout[edge.source] ?? { x: 0, y: 0 };
   const foreignKeys = { ...table.foreignKeys };
-  for (const key of compatibleEdgeKeys(edge)) delete foreignKeys[key];
+  for (const key of compatibleEdgeKeys(edge)) {
+    // A former aggregate route can still supply defaults to sibling branches.
+    if (!inheritedLayoutAliases(edge).includes(key)) delete foreignKeys[key];
+  }
   foreignKeys[canonicalEdgeKey(edge)] = {
     ...value,
     targetTable: edge.target,

@@ -72,6 +72,7 @@ export type SchemaCanvasLabels = {
 
 export type SchemaCanvasFeatures = {
   canvasToolbar: boolean;
+  navigationControls: boolean;
   minimap: boolean;
   background: boolean;
   autoLayout: boolean;
@@ -173,9 +174,10 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
 
 export const defaultSchemaCanvasFeatures: SchemaCanvasFeatures = {
   canvasToolbar: false,
+  navigationControls: true,
   minimap: true,
   background: true,
-  autoLayout: true,
+  autoLayout: false,
   annotations: true,
   imageAnnotations: true,
   edgeEditor: true,
