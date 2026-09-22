@@ -84,12 +84,13 @@ export function summarizeValidator(
   }
   if (expandIdentifiers && ts.isIdentifier(expression)) {
     const declaration = lookupDeclaration(expression, declarations);
-    if (declaration && !resolving.has(expression.text)) {
+    const key = declarationKey(expression);
+    if (declaration && !resolving.has(key)) {
       return summarizeValidator(
         declaration.initializer,
         declaration.sourceFile,
         declarations,
-        new Set([...resolving, expression.text]),
+        new Set([...resolving, key]),
         true,
       );
     }
@@ -111,11 +112,12 @@ export function isOptionalValidator(
   }
   if (ts.isIdentifier(expression)) {
     const declaration = lookupDeclaration(expression, declarations);
-    if (declaration && !resolving.has(expression.text)) {
+    const key = declarationKey(expression);
+    if (declaration && !resolving.has(key)) {
       return isOptionalValidator(
         declaration.initializer,
         declarations,
-        new Set([...resolving, expression.text]),
+        new Set([...resolving, key]),
       );
     }
   }
@@ -162,12 +164,13 @@ export function findForeignKeys(
   }
   if (ts.isIdentifier(node)) {
     const declaration = lookupDeclaration(node, declarations);
-    if (declaration && !resolving.has(node.text)) {
+    const key = declarationKey(node);
+    if (declaration && !resolving.has(key)) {
       return findForeignKeys(
         declaration.initializer,
         underOptional,
         declarations,
-        new Set([...resolving, node.text]),
+        new Set([...resolving, key]),
       );
     }
   }
@@ -303,14 +306,14 @@ function resolveObjectLiteral(
   expression = unwrapExpression(expression);
   if (ts.isObjectLiteralExpression(expression))
     return { object: expression, resolving };
-  if (!ts.isIdentifier(expression) || resolving.has(expression.text))
+  if (!ts.isIdentifier(expression) || resolving.has(declarationKey(expression)))
     return undefined;
   const declaration = lookupDeclaration(expression, declarations);
   return declaration
     ? resolveObjectLiteral(
         declaration.initializer,
         declarations,
-        new Set([...resolving, expression.text]),
+        new Set([...resolving, declarationKey(expression)]),
       )
     : undefined;
 }
@@ -345,7 +348,7 @@ export function resolveValidator(
 ): ts.Expression {
   expression = unwrapExpression(expression);
   if (!ts.isIdentifier(expression)) return expression;
-  const key = `${expression.getSourceFile().fileName}:${expression.text}`;
+  const key = declarationKey(expression);
   if (seen.has(key)) throw new Error(`Cyclic validator ${expression.text}.`);
   const declaration = lookupDeclaration(expression, declarations);
   return declaration
@@ -361,7 +364,11 @@ export function lookupDeclaration(
   node: ts.Identifier,
   declarations: ReadonlyMap<string, ValidatorDeclaration>,
 ) {
-  return declarations.get(`${node.getSourceFile().fileName}:${node.text}`);
+  return declarations.get(declarationKey(node));
+}
+
+export function declarationKey(node: ts.Identifier) {
+  return `${node.getSourceFile().fileName}:${node.text}`;
 }
 
 export function objectVariants(

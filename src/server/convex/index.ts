@@ -9,6 +9,7 @@ import {
 } from "../../core/index.js";
 import {
   findForeignKeys,
+  declarationKey,
   isIdentifierCall,
   isOptionalValidator,
   propertyName,
@@ -166,11 +167,7 @@ export function parseConvexSchema(
         const occurrences = field.discriminatedUnion?.variants.flatMap(
           (variant) =>
             variant.fields
-              .filter(
-                (member) =>
-                  member.type === `id<${target}>` &&
-                  member.foreignKeyTargets.includes(target),
-              )
+              .filter((member) => member.foreignKeyTargets.includes(target))
               .map((member) => ({
                 field: `${field.name}(${field.discriminatedUnion!.discriminator}=${variant.discriminatorValue}).${member.name}`,
                 optional: field.optional || member.optional,
@@ -438,13 +435,17 @@ function tableEntries(
   seen = new Set<string>(),
 ): Array<{ name: string; initializer: ts.Expression }> {
   if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
-    if (seen.has(property.expression.text)) return [];
+    const key = declarationKey(property.expression);
+    if (seen.has(key))
+      throw new ConvexSchemaError([
+        `Cyclic table spread ${property.expression.text}.`,
+      ]);
     const declaration = lookupDeclaration(property.expression, declarations);
     if (!declaration?.object)
       throw new ConvexSchemaError([
         `Cannot resolve table spread ${property.expression.text}.`,
       ]);
-    const next = new Set([...seen, property.expression.text]);
+    const next = new Set([...seen, key]);
     return declaration.object.properties.flatMap((item) =>
       tableEntries(item, declaration.sourceFile, declarations, next),
     );
@@ -513,6 +514,14 @@ function mergeFields(
     const targets = [
       ...new Set(present.flatMap(({ field }) => field.foreignKeyTargets)),
     ];
+    const nestedUnion = present[0]!.field.discriminatedUnion;
+    const sharedUnion =
+      nestedUnion &&
+      present.every(
+        ({ field }) =>
+          JSON.stringify(field.discriminatedUnion) ===
+          JSON.stringify(nestedUnion),
+      );
     return {
       name,
       type: [...new Set(present.map(({ field }) => field.type))].join(" | "),
@@ -543,9 +552,7 @@ function mergeFields(
           ]),
         ),
       },
-      ...(present.length === 1 && present[0]!.field.discriminatedUnion
-        ? { discriminatedUnion: present[0]!.field.discriminatedUnion }
-        : {}),
+      ...(sharedUnion ? { discriminatedUnion: nestedUnion } : {}),
     };
   });
 }

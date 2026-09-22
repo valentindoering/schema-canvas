@@ -283,12 +283,12 @@ function SchemaCanvasInner({
       save = true,
     ) => {
       setAnnotations((current) => {
-        const next = recipe(current);
+        const next = hydrateImages(recipe(current), resolveImage);
         if (save) enqueueAnnotations(stripResolvedImages(next));
         return next;
       });
     },
-    [enqueueAnnotations],
+    [enqueueAnnotations, resolveImage],
   );
 
   const onNodesChange = useCallback(

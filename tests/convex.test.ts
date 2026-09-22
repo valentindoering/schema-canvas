@@ -14,6 +14,74 @@ import {
 } from "../src/server/convex/index.js";
 
 describe("Convex adapter", () => {
+  it("follows same-name validator aliases across modules without losing references", () => {
+    const sources = new Map([
+      [
+        "/schema.ts",
+        `import { ref } from './a'; export default defineSchema({ accounts: defineTable({ name: v.string() }), voyages: defineTable({ ref }) });`,
+      ],
+      ["/a.ts", `import { base } from './b'; export const ref = base;`],
+      ["/b.ts", `import { ref } from './c'; export const base = ref;`],
+      ["/c.ts", `export const ref = v.optional(v.id('accounts'));`],
+    ]);
+    const graph = parseConvexSchema("/schema.ts", {
+      sourceReader: reader(sources),
+      followTransitiveImports: true,
+    });
+    expect(graph.tables[1]!.fields[0]).toMatchObject({
+      type: "id<accounts>",
+      optional: true,
+      foreignKeyTargets: ["accounts"],
+    });
+    expect(graph.edges).toMatchObject([
+      { field: "ref", target: "accounts", optional: true },
+    ]);
+  });
+
+  it("retains every nested branch reference when a table union shares the field", () => {
+    const graph = parseConvexSchema("/schema.ts", {
+      sourceReader: reader(
+        new Map([
+          [
+            "/schema.ts",
+            `
+        const assignment = v.union(
+          v.object({ mode: v.literal('crew'), captain: v.id('accounts') }),
+          v.object({ mode: v.literal('team'), crew: v.array(v.id('accounts')) }),
+          v.object({ mode: v.literal('port'), berth: v.object({ keeper: v.id('accounts') }) })
+        );
+        export default defineSchema({
+          accounts: defineTable({ name: v.string() }),
+          voyages: defineTable({ assignment }),
+          vessels: defineTable(v.union(
+            v.object({ kind: v.literal('sail'), assignment }),
+            v.object({ kind: v.literal('steam'), assignment })
+          ))
+        });
+      `,
+          ],
+        ]),
+      ),
+    });
+    for (const id of ["voyages", "vessels"]) {
+      expect(
+        graph.tables
+          .find((table) => table.id === id)!
+          .fields.find((field) => field.name === "assignment")!
+          .discriminatedUnion?.variants,
+      ).toHaveLength(3);
+      expect(
+        graph.edges
+          .filter((edge) => edge.source === id)
+          .map((edge) => edge.field),
+      ).toEqual([
+        "assignment(mode=crew).captain",
+        "assignment(mode=team).crew",
+        "assignment(mode=port).berth",
+      ]);
+    }
+  });
+
   it("expands table unions and nested discriminated branches without domain-specific labels", () => {
     const graph = parseConvexSchema("/schema.ts", {
       sourceReader: reader(

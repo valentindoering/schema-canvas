@@ -20,6 +20,55 @@ vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(cleanup);
 
 describe("SchemaCanvas", () => {
+  it("resolves an asset-only image replacement immediately and saves only its asset", async () => {
+    const save = vi.fn();
+    const { container } = render(
+      <SchemaCanvas
+        graph={graph}
+        layout={layout}
+        annotations={[
+          {
+            id: "chart",
+            kind: "image",
+            label: "Chart",
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 200,
+            color: "slate",
+            asset: "old.png",
+          },
+        ]}
+        writable
+        resolveImage={(asset) => `https://example.com/${asset}`}
+        onUploadImage={async () => ({ asset: "new.png" })}
+        onSaveAnnotations={save}
+      />,
+    );
+    expect(screen.getByRole("img", { name: "Chart" }).getAttribute("src")).toBe(
+      "https://example.com/old.png",
+    );
+    fireEvent.click(container.querySelector('[data-id="annotation:chart"]')!);
+    const upload = container.querySelector(
+      '.schema-canvas__editor input[type="file"]',
+    )!;
+    fireEvent.change(upload, {
+      target: {
+        files: [new File(["fictional"], "new.png", { type: "image/png" })],
+      },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("img", { name: "Chart" }).getAttribute("src"),
+      ).toBe("https://example.com/new.png"),
+    );
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls.at(-1)?.[0].value[0]).toMatchObject({
+      asset: "new.png",
+    });
+    expect(save.mock.calls.at(-1)?.[0].value[0]).not.toHaveProperty("src");
+  });
+
   it("keeps an unpositioned table in its column when changing its appearance", async () => {
     const save = vi.fn();
     render(
