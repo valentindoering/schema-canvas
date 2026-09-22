@@ -160,6 +160,16 @@ The save queue should debounce bursts, serialize in-flight writes, retain only
 the newest queued value, surface errors, and update opaque revisions returned by
 the host. The same implementation should handle simple non-revisioned saves.
 
+The canvas ref exposes `getSaveState`, `flushSaves`, and `whenSavesIdle`.
+`onSaveStateChange` reports dirty and pending state synchronously on enqueue
+and subsequent transitions for both channels. Errors retain unsaved values;
+explicit flushing retries them without overriding optimistic revisions.
+Queues outlive render callback changes. Unmount drains outstanding work rather
+than disposing it, but this is only a fallback: the host must guard route exit,
+await successful saves, and handle hard-page unload warnings. Post-unmount
+errors remain observable through the host callback. No router or unload policy
+is installed by the package.
+
 ## Styling and localization
 
 Ship semantic class names and a compiled CSS file. Expose color, spacing,

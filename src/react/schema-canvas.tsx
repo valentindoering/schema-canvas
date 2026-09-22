@@ -14,6 +14,8 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import {
   useCallback,
   useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -49,6 +51,7 @@ import {
   defaultSchemaCanvasLabels,
   type SchemaCanvasLabels,
   type SchemaCanvasProps,
+  type SchemaCanvasHandle,
 } from "./types.js";
 
 const nodeTypes = {
@@ -74,6 +77,8 @@ export function SchemaCanvas(props: SchemaCanvasProps) {
 }
 
 function SchemaCanvasInner({
+  ref,
+  onSaveStateChange,
   graph,
   layout: layoutProp,
   annotations: annotationsProp = EMPTY_ANNOTATIONS,
@@ -138,14 +143,58 @@ function SchemaCanvasInner({
   );
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
-  const [layoutSaveState, enqueueLayout] = useSaveChannel(
+  const saveStateListener = useRef(onSaveStateChange);
+  useLayoutEffect(() => {
+    saveStateListener.current = onSaveStateChange;
+  }, [onSaveStateChange]);
+  const saveHandle = useRef<SchemaCanvasHandle | null>(null);
+  const notifySaveState = useCallback(() => {
+    if (saveHandle.current) {
+      saveStateListener.current?.(saveHandle.current.getSaveState());
+    }
+  }, []);
+  const [layoutSaveState, enqueueLayout, layoutQueue] = useSaveChannel(
     writable ? onSaveLayout : undefined,
     layoutRevision,
+    notifySaveState,
   );
-  const [annotationSaveState, enqueueAnnotations] = useSaveChannel(
-    writable ? onSaveAnnotations : undefined,
-    annotationRevision,
-  );
+  const [annotationSaveState, enqueueAnnotations, annotationQueue] =
+    useSaveChannel(
+      writable ? onSaveAnnotations : undefined,
+      annotationRevision,
+      notifySaveState,
+    );
+  const handle = useMemo<SchemaCanvasHandle>(() => {
+    const getSaveState = () => {
+      const layout = layoutQueue.getSnapshot();
+      const annotations = annotationQueue.getSnapshot();
+      return {
+        dirty: layout.dirty || annotations.dirty,
+        pending: layout.pending || annotations.pending,
+        layout,
+        annotations,
+      };
+    };
+    const settle = async (flush: boolean) => {
+      do {
+        const results = await Promise.allSettled([
+          flush ? layoutQueue.flush() : layoutQueue.whenIdle(),
+          flush ? annotationQueue.flush() : annotationQueue.whenIdle(),
+        ]);
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
+      } while (getSaveState().pending);
+    };
+    return {
+      getSaveState,
+      flushSaves: () => settle(true),
+      whenSavesIdle: () => settle(false),
+    };
+  }, [layoutQueue, annotationQueue]);
+  useLayoutEffect(() => {
+    saveHandle.current = handle;
+  }, [handle]);
+  useImperativeHandle(ref, () => handle, [handle]);
   const [reactFlow, setReactFlow] = useState<
     ReactFlowInstance<CanvasNode, CanvasEdge> | undefined
   >();
@@ -866,22 +915,54 @@ function useSaveChannel<T>(
       }) => Promise<{ value?: T; revision?: string }>)
     | undefined,
   revision: string | undefined,
+  onSnapshotChange: () => void,
 ) {
   const [state, setState] = useState<SaveState>({ status: "idle" });
-  const queue = useRef<SaveQueue<T> | null>(null);
-  useEffect(() => {
-    queue.current?.dispose();
-    queue.current = save
-      ? createSaveQueue({
-          save,
-          ...(revision === undefined ? {} : { revision }),
-          onStateChange: setState,
-        })
-      : null;
-    return () => queue.current?.dispose();
-  }, [revision, save]);
-  const enqueue = useCallback((value: T) => queue.current?.enqueue(value), []);
-  return [state, enqueue] as const;
+  const mounted = useRef(false);
+  const saveCallback = useRef(save);
+  const enabled = useRef(Boolean(save));
+  const [queue] = useState<SaveQueue<T>>(() =>
+    createSaveQueue({
+      save: (request) => {
+        const callback = saveCallback.current;
+        if (!callback)
+          return Promise.reject(new Error("No save callback configured"));
+        return callback(request);
+      },
+      ...(revision === undefined ? {} : { revision }),
+      onSnapshotChange: (snapshot) => {
+        if (mounted.current)
+          setState(snapshot.pending ? { status: "saving" } : snapshot.state);
+        onSnapshotChange();
+      },
+    }),
+  );
+  useLayoutEffect(() => {
+    // Callback identity changes must not replace a queue with outstanding edits.
+    if (save) saveCallback.current = save;
+    enabled.current = Boolean(save);
+  }, [save]);
+  useLayoutEffect(() => {
+    queue.setRevision(revision);
+  }, [queue, revision]);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // Best-effort fallback only. Hosts must await flushSaves before navigation
+      // to retain their editor on failure, and warn on dirty hard-page unloads.
+      if (queue.getSnapshot().state.status !== "error") {
+        void queue.flush().catch(() => undefined);
+      }
+    };
+  }, [queue]);
+  const enqueue = useCallback(
+    (value: T) => {
+      if (enabled.current) queue.enqueue(value);
+    },
+    [queue],
+  );
+  return [state, enqueue, queue] as const;
 }
 
 function TableEditor({

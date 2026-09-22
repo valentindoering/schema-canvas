@@ -18,4 +18,6 @@ export {
   type SchemaCanvasFeatures,
   type SchemaCanvasLabels,
   type SchemaCanvasProps,
+  type SchemaCanvasHandle,
+  type SchemaCanvasSaveState,
 } from "./types.js";

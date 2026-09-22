@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.1
+
+- Expose a canvas ref with `getSaveState`, `flushSaves`, and `whenSavesIdle`,
+  plus immediate `onSaveStateChange` notifications for navigation guards.
+- Drain queued layout and annotation edits on unmount instead of cancelling
+  the debounce timer and dropping outstanding writes.
+- Keep queues stable across save callback changes. Retain failed values for
+  explicit retry and preserve revision ordering through successor writes.
+
+Existing layout and annotation files need no migration. Hosts should await
+`flushSaves` before route exit and warn on hard-page unload while dirty;
+unmount flushing alone cannot guarantee delivery after a page closes.
+
 ## 0.2.0
 
 - Use the unscoped npm package name `schema-canvas`.

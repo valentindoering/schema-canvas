@@ -94,6 +94,83 @@ unpositioned-table tray through feature switches when their route needs them.
 Automatic arrangement requires explicit `autoLayout: true`; it is disabled by
 default. Set `navigationControls: false` to hide the zoom/fit button panel.
 
+## Save lifecycle and navigation
+
+Use a ref to coordinate route exit with both save channels:
+
+```tsx
+import { useEffect, useRef } from "react";
+import { SchemaCanvas, type SchemaCanvasHandle } from "schema-canvas/react";
+
+// Inside your host component:
+const canvas = useRef<SchemaCanvasHandle>(null);
+
+// Inside the host component. Register this for the editor's whole lifetime so
+// the first edit is protected before any React state update is rendered.
+useEffect(() => {
+  const warn = (event: BeforeUnloadEvent) => {
+    if (!canvas.current?.getSaveState().dirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+  window.addEventListener("beforeunload", warn);
+  return () => window.removeEventListener("beforeunload", warn);
+}, []);
+
+async function leaveEditor() {
+  try {
+    await canvas.current?.flushSaves();
+    navigateAway(); // Host-owned router operation, after successful persistence.
+  } catch (error) {
+    showSaveError(error); // Stay in the editor; do not navigate in finally.
+  }
+}
+
+// Supply the usual graph, layout, writable, and persistence props as well.
+<SchemaCanvas
+  ref={canvas}
+  {...diagramProps}
+  onSaveStateChange={reportSaveState}
+/>;
+```
+
+Wire this policy into the router's blocker for every route-exit path, including
+Back and links outside the editor. Table focus changes can keep the editor
+mounted. Disable further editing while accepting navigation, or recheck dirty
+state before completing the transition.
+
+- `getSaveState()` returns aggregate `dirty` and `pending` flags plus `layout`
+  and `annotations` channel snapshots. Each channel has `dirty`, `pending`,
+  and `state` (the existing idle/saving/saved/error union).
+- Dirty becomes true synchronously when an edit is queued, including during
+  debounce. Failed values remain dirty. Pending means a timer or write is
+  active; a failed channel can be dirty without being pending.
+- `flushSaves()` bypasses debounce, retries retained failures, and waits for
+  both channels, including queued successors. It rejects on failure after both
+  channels settle. Saves across channels are independent, not one transaction.
+- `whenSavesIdle()` waits without bypassing debounce or retrying failures. It
+  rejects if either channel has a retained error.
+- `onSaveStateChange` reports changes immediately. It can also report fallback
+  save results after unmount, so route-independent error reporting should live
+  outside the editor. Do not navigate directly from this notification.
+
+Unmount starts a best-effort drain, but a closing browser may terminate it.
+Awaiting saves before route exit and warning on dirty hard-page unload are host
+responsibilities. Browsers may suppress unload prompts; neither a prompt nor
+unmount flushing guarantees delivery after a tab closes. Keep the same canvas
+instance only for the same document; flush before switching documents.
+
+Queues survive callback identity changes and keep opaque revisions in order.
+External revision updates are accepted only while the channel is clean.
+Conflict errors require the host to reload/merge the remote document before
+retrying with an appropriate revision; retries never silently replace the
+expected revision. No save callback means that channel is local-only and is
+not tracked as unsaved persistence work.
+
+The core `createSaveQueue` also exposes `getSnapshot()`, `whenIdle()`, and
+`onSnapshotChange`. Its `dispose()` explicitly cancels queued work; call
+`flush()` first when cancellation is not intended.
+
 ## Source adapters
 
 ```ts

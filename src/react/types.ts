@@ -1,8 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 
 import type {
   SaveRequest,
   SaveResponse,
+  SaveQueueSnapshot,
   SchemaAnnotation,
   SchemaGraph,
   SchemaLayout,
@@ -84,6 +85,9 @@ export type SchemaCanvasFeatures = {
 };
 
 export type SchemaCanvasProps = {
+  ref?: Ref<SchemaCanvasHandle>;
+  /** Synchronous notification on enqueue and every save transition, even after unmount. */
+  onSaveStateChange?: (state: SchemaCanvasSaveState) => void;
   graph: SchemaGraph;
   layout: SchemaLayout;
   annotations?: SchemaAnnotation[];
@@ -111,6 +115,21 @@ export type SchemaCanvasProps = {
   renderTableDetails?: (table: SchemaTable) => ReactNode;
   className?: string;
   style?: CSSProperties;
+};
+
+export type SchemaCanvasSaveState = {
+  dirty: boolean;
+  pending: boolean;
+  layout: SaveQueueSnapshot;
+  annotations: SaveQueueSnapshot;
+};
+
+export type SchemaCanvasHandle = {
+  getSaveState(): SchemaCanvasSaveState;
+  /** Bypass debounce, retry failed values, and wait for both channels to settle. */
+  flushSaves(): Promise<void>;
+  /** Wait for both channels without retrying errors or bypassing debounce. */
+  whenSavesIdle(): Promise<void>;
 };
 
 export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {

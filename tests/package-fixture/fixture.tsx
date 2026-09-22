@@ -1,5 +1,10 @@
 import { parseSchemaAnnotations } from "schema-canvas/core";
-import { SchemaCanvas } from "schema-canvas/react";
+import { createRef } from "react";
+import {
+  SchemaCanvas,
+  type SchemaCanvasHandle,
+  type SchemaCanvasSaveState,
+} from "schema-canvas/react";
 import { parseConvexSchema } from "schema-canvas/server/convex";
 import { createJsonStore } from "schema-canvas/server/json-store";
 import { checkSchemaLayout } from "schema-canvas/server/layout";
@@ -14,5 +19,13 @@ parseSchemaAnnotations([]);
 export const adapters = { parseConvexSchema, createJsonStore };
 
 export const canvas = (
-  <SchemaCanvas graph={graph} layout={layout} writable={false} />
+  <SchemaCanvas
+    ref={createRef<SchemaCanvasHandle>()}
+    graph={graph}
+    layout={layout}
+    writable={false}
+    onSaveStateChange={(state: SchemaCanvasSaveState) => {
+      void state.dirty;
+    }}
+  />
 );

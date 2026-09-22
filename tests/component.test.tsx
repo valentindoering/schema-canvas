@@ -1,13 +1,15 @@
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
+import { createRef, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SchemaCanvas } from "../src/react/index.js";
+import { SchemaCanvas, type SchemaCanvasHandle } from "../src/react/index.js";
 import { graph, layout } from "./fixtures.js";
 
 class ResizeObserverStub {
@@ -20,6 +22,252 @@ vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(cleanup);
 
 describe("SchemaCanvas", () => {
+  it("exposes immediate dirty state and flushes both channels before navigation", async () => {
+    const ref = createRef<SchemaCanvasHandle>();
+    const notify = vi.fn();
+    const save = vi.fn(async () => ({}));
+    render(
+      <SchemaCanvas
+        ref={ref}
+        graph={graph}
+        layout={layout}
+        writable
+        initialTableId="accounts"
+        onSaveLayout={save}
+        onSaveAnnotations={save}
+        onSaveStateChange={notify}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    expect(save).not.toHaveBeenCalled();
+    expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({
+      dirty: true,
+      pending: true,
+    });
+    expect(ref.current?.getSaveState().layout.dirty).toBe(true);
+    expect(ref.current?.getSaveState().annotations.dirty).toBe(true);
+    await act(() => ref.current!.flushSaves());
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(ref.current?.getSaveState()).toMatchObject({
+      dirty: false,
+      pending: false,
+    });
+  });
+
+  it("preserves the queue through StrictMode, callback changes, and revision echoes", async () => {
+    const ref = createRef<SchemaCanvasHandle>();
+    const oldSave = vi.fn(async () => ({}));
+    const newSave = vi.fn().mockResolvedValue({ revision: "r2" });
+    const { rerender } = render(
+      <StrictMode>
+        <SchemaCanvas
+          ref={ref}
+          graph={graph}
+          layout={layout}
+          writable
+          initialTableId="accounts"
+          layoutRevision="r1"
+          onSaveLayout={oldSave}
+        />
+      </StrictMode>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
+    rerender(
+      <StrictMode>
+        <SchemaCanvas
+          ref={ref}
+          graph={graph}
+          layout={layout}
+          writable
+          initialTableId="accounts"
+          layoutRevision="unrelated"
+          onSaveLayout={newSave}
+        />
+      </StrictMode>,
+    );
+    await act(() => ref.current!.flushSaves());
+    expect(oldSave).not.toHaveBeenCalled();
+    expect(newSave).toHaveBeenCalledTimes(1);
+    expect(newSave.mock.calls[0]?.[0]).toMatchObject({
+      expectedRevision: "r1",
+    });
+    const thirdSave = vi.fn().mockResolvedValue({ revision: "r3" });
+    rerender(
+      <StrictMode>
+        <SchemaCanvas
+          ref={ref}
+          graph={graph}
+          layout={layout}
+          writable
+          initialTableId="accounts"
+          layoutRevision="unrelated"
+          onSaveLayout={thirdSave}
+        />
+      </StrictMode>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Highlighted" }));
+    await act(() => ref.current!.flushSaves());
+    expect(thirdSave.mock.calls[0]?.[0]).toMatchObject({
+      expectedRevision: "r2",
+    });
+  });
+
+  it.each(["layout", "annotations"])(
+    "drains a queued %s successor after an active save on unmount",
+    async (channel) => {
+      const ref = createRef<SchemaCanvasHandle>();
+      let finish!: () => void;
+      const save = vi
+        .fn()
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = () => resolve({ revision: "r2" });
+            }),
+        )
+        .mockResolvedValue({ revision: "r3" });
+      const { unmount } = render(
+        <SchemaCanvas
+          ref={ref}
+          graph={graph}
+          layout={layout}
+          writable
+          initialTableId="accounts"
+          onSaveLayout={save}
+          onSaveAnnotations={save}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: channel === "layout" ? "Quiet" : "Add note",
+        }),
+      );
+      const handle = ref.current!;
+      let flushing!: Promise<void>;
+      act(() => {
+        flushing = handle.flushSaves();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: channel === "layout" ? "Highlighted" : "Add text",
+        }),
+      );
+      unmount();
+      finish();
+      await flushing;
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(save.mock.calls[1]?.[0].expectedRevision).toBe("r2");
+      expect(handle.getSaveState().dirty).toBe(false);
+    },
+  );
+
+  it("retains failed edits for explicit retry and waits for the other channel before rejecting", async () => {
+    const ref = createRef<SchemaCanvasHandle>();
+    let finish!: () => void;
+    const saveLayout = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("revision conflict"))
+      .mockResolvedValue({});
+    const { unmount } = render(
+      <SchemaCanvas
+        ref={ref}
+        graph={graph}
+        layout={layout}
+        writable
+        initialTableId="accounts"
+        onSaveLayout={saveLayout}
+        onSaveAnnotations={() =>
+          new Promise((resolve) => {
+            finish = () => resolve({});
+          })
+        }
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    let settled = false;
+    let flushing!: Promise<unknown>;
+    act(() => {
+      flushing = ref.current!.flushSaves().catch((error) => {
+        settled = true;
+        return error;
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+    await act(async () => {
+      finish();
+      await flushing;
+    });
+    expect(await flushing).toEqual(new Error("revision conflict"));
+    expect(ref.current!.getSaveState()).toMatchObject({
+      dirty: true,
+      pending: false,
+    });
+    await expect(ref.current!.whenSavesIdle()).rejects.toThrow(
+      "revision conflict",
+    );
+    expect(saveLayout).toHaveBeenCalledTimes(1);
+    await act(() => ref.current!.flushSaves());
+    expect(ref.current!.getSaveState().dirty).toBe(false);
+    unmount();
+  });
+
+  it("reports a failed fallback save to the host after unmount", async () => {
+    const notify = vi.fn();
+    const { unmount } = render(
+      <SchemaCanvas
+        graph={graph}
+        layout={layout}
+        writable
+        onSaveStateChange={notify}
+        onSaveAnnotations={async () => {
+          throw new Error("offline");
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    unmount();
+    await waitFor(() =>
+      expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({
+        dirty: true,
+        pending: false,
+        annotations: {
+          state: { status: "error", error: new Error("offline") },
+        },
+      }),
+    );
+  });
+  it.each(["layout", "annotations"])(
+    "drains debounced %s edits on unmount",
+    async (channel) => {
+      const save = vi.fn(async () => ({}));
+      const { unmount } = render(
+        <SchemaCanvas
+          graph={graph}
+          layout={layout}
+          writable
+          initialTableId="accounts"
+          onSaveLayout={save}
+          onSaveAnnotations={save}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: channel === "layout" ? "Quiet" : "Add note",
+        }),
+      );
+      expect(save).not.toHaveBeenCalled();
+      unmount();
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    },
+  );
   it("follows table focus changes without remounting or losing a queued annotation", async () => {
     const save = vi.fn();
     const { container, rerender } = render(

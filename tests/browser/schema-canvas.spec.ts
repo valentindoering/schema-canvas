@@ -1,5 +1,48 @@
 import { expect, test } from "@playwright/test";
 
+test("route exit flushes an immediate edit before closing the editor", async ({
+  page,
+}) => {
+  await page.goto("/?saveDelay=200");
+  await page.getByTestId("mode").click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await expect(page.getByTestId("dirty")).toHaveText("true");
+  await page.getByRole("button", { name: "Leave editor" }).click();
+  await expect(page.getByText("Editor closed")).toBeVisible();
+  await expect(page.getByTestId("annotations")).toContainText('"kind":"note"');
+  await expect(page.getByTestId("dirty")).toHaveText("false");
+});
+
+test("failed saves retain the editor and dirty state until explicit retry succeeds", async ({
+  page,
+}) => {
+  await page.goto("/?saveFailure=1");
+  await page.getByTestId("mode").click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await page.getByRole("button", { name: "Leave editor" }).click();
+  await expect(page.getByTestId("save-error")).toHaveText("Save unavailable");
+  await expect(page.getByTestId("dirty")).toHaveText("true");
+  await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
+  await page.getByRole("button", { name: "Leave editor" }).click();
+  await expect(page.getByText("Editor closed")).toBeVisible();
+  await expect(page.getByTestId("annotations")).toContainText('"kind":"note"');
+});
+
+test("a host unload guard can warn immediately after an edit", async ({
+  page,
+}) => {
+  await page.goto("/?saveDelay=5000");
+  await page.getByTestId("mode").click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  const dialog = page.waitForEvent("dialog");
+  const reload = page.reload({ timeout: 2000 }).catch(() => undefined);
+  const warning = await dialog;
+  expect(warning.type()).toBe("beforeunload");
+  await warning.dismiss();
+  await reload;
+  await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
+});
+
 test("read-only mode permits inspection but not mutation", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Read only")).toBeVisible();
