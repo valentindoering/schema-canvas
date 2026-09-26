@@ -50,3 +50,7 @@ Before a release candidate:
 
 Publishing remains blocked while `package.json` contains `"private": true`.
 Removing that guard requires an explicit visibility and license decision.
+
+## Codex worktrees
+
+The checked-in environment installs locked dependencies and starts an isolated playground on a free loopback port. Use `node scripts/worktree-dev.mjs status` for its URL, `start` to reuse it, and `stop` for cleanup. Codex cleanup stops only this worktree. Runtime files stay ignored.

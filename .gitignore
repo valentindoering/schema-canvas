@@ -11,3 +11,5 @@ example-dist/
 *.tgz
 *.private.md
 .handoff/
+
+.codex-runtime/
