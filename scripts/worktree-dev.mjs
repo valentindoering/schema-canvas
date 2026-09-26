@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -22,7 +22,10 @@ async function state() {
 function alive(pid) {
   try {
     process.kill(pid, 0);
-    return true;
+    const owner = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+    });
+    return owner.status === 0 && owner.stdout.includes(root);
   } catch {
     return false;
   }
