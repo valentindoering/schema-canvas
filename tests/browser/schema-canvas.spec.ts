@@ -108,6 +108,43 @@ test("writable mode supports direct annotation resize and explicit deletion", as
   await expect(page.getByText("Milestone", { exact: true })).toHaveCount(0);
 });
 
+test("notes preserve plain-text line breaks and keep overflow readable", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByTestId("mode").click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await page
+    .getByLabel("Text")
+    .fill(
+      [
+        "Invariants",
+        "- first item",
+        "- second item",
+        "",
+        "Next paragraph with an_unbroken_identifier_that_must_wrap",
+        "More detail",
+        "More detail",
+        "More detail",
+        "More detail",
+        "More detail",
+      ].join("\n"),
+    );
+  await page.getByLabel("Text").blur();
+
+  const note = page.locator(".schema-canvas__annotation-card--note").last();
+  const body = note.locator("p");
+  await expect(body).toHaveCSS("white-space", "pre-wrap");
+  await expect(body).toHaveCSS("overflow-wrap", "anywhere");
+  await expect(note).toHaveCSS("overflow-y", "auto");
+  await expect(note).toHaveClass(/\bnowheel\b/);
+  await expect
+    .poll(() =>
+      note.evaluate((element) => element.scrollHeight > element.clientHeight),
+    )
+    .toBe(true);
+});
+
 test("writable mode exposes table and edge controls", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("mode").click();

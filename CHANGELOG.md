@@ -2,6 +2,9 @@
 
 ## 0.2.1
 
+- Preserve line breaks and long identifiers in note and text annotations. Keep
+  constrained notes scrollable without letting their wheel events zoom the
+  canvas.
 - Expose a canvas ref with `getSaveState`, `flushSaves`, and `whenSavesIdle`,
   plus immediate `onSaveStateChange` notifications for navigation guards.
 - Drain queued layout and annotation edits on unmount instead of cancelling

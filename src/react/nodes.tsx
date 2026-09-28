@@ -177,7 +177,7 @@ export function SchemaAnnotationNode({
         }
       />
       <article
-        className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}`}
+        className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}${annotation.kind === "note" ? " nowheel" : ""}`}
         style={
           annotation.kind === "text" && annotation.fontSize
             ? { fontSize: annotation.fontSize }
