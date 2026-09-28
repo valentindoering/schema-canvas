@@ -96,7 +96,8 @@ a compact icon toolbar at the lower left. Selected annotations resize through
 drag handles on the canvas. Hosts can enable the optional canvas toolbar or
 unpositioned-table tray through feature switches when their route needs them.
 Automatic arrangement requires explicit `autoLayout: true`; it is disabled by
-default. Set `navigationControls: false` to hide the zoom/fit button panel.
+default. Compact zoom in, zoom out, and fit controls sit at the lower center;
+set `navigationControls: false` to hide them.
 
 ## Save lifecycle and navigation
 

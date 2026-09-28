@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4
+
+- Place compact zoom in, zoom out, and fit controls at the lower center of the
+  canvas when navigation controls are enabled.
+- Keep the controls clear of the search button and mobile annotation actions.
+
+Existing layout and annotation files need no migration.
+
 ## 0.2.3
 
 - Add a compact, debounced table search that finds labels and IDs across views,

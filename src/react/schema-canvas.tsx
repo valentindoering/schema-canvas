@@ -918,7 +918,13 @@ function SchemaCanvasInner({
         ) : null}
         {features.minimap ? <MiniMap pannable zoomable /> : null}
         {features.navigationControls ? (
-          <Controls position="top-left" showInteractive={false} />
+          <Controls
+            className="schema-canvas__navigation"
+            position="bottom-center"
+            orientation="horizontal"
+            showInteractive={false}
+            fitViewOptions={{ padding: 0.15, duration: 250 }}
+          />
         ) : null}
       </ReactFlow>
 
