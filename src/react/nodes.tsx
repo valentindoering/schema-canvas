@@ -177,7 +177,14 @@ export function SchemaAnnotationNode({
         }
       />
       <article
-        className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}${annotation.kind === "note" ? " nowheel" : ""}`}
+        className={`schema-canvas__annotation-card schema-canvas__annotation-card--${annotation.kind} schema-canvas__annotation-card--${annotation.color}`}
+        onWheelCapture={
+          annotation.kind === "note"
+            ? (event) => {
+                if (!event.ctrlKey) event.stopPropagation();
+              }
+            : undefined
+        }
         style={
           annotation.kind === "text" && annotation.fontSize
             ? { fontSize: annotation.fontSize }

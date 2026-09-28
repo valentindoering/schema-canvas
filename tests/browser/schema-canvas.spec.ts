@@ -1,5 +1,40 @@
 import { expect, test } from "@playwright/test";
 
+test("trackpad pinch zooms over canvas content", async ({ page }) => {
+  await page.goto("/");
+  const viewport = page.locator(".react-flow__viewport");
+  const zoom = () =>
+    viewport.evaluate((element) => {
+      const transform = getComputedStyle(element).transform;
+      return new DOMMatrixReadOnly(transform).a;
+    });
+  const pinch = async (selector: string) => {
+    const before = await zoom();
+    await page
+      .locator(selector)
+      .first()
+      .evaluate((element) => {
+        element.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            cancelable: true,
+            ctrlKey: true,
+            deltaY: 80,
+            clientX: element.getBoundingClientRect().left + 20,
+            clientY: element.getBoundingClientRect().top + 20,
+          }),
+        );
+      });
+    await expect.poll(zoom).toBeLessThan(before);
+  };
+
+  await pinch(".react-flow__pane");
+  await pinch(".schema-canvas__table-card");
+  await page.getByTestId("mode").click();
+  await page.getByRole("button", { name: "Add note" }).click();
+  await pinch(".schema-canvas__annotation-card--note");
+});
+
 test("route exit flushes an immediate edit before closing the editor", async ({
   page,
 }) => {
@@ -137,12 +172,25 @@ test("notes preserve plain-text line breaks and keep overflow readable", async (
   await expect(body).toHaveCSS("white-space", "pre-wrap");
   await expect(body).toHaveCSS("overflow-wrap", "anywhere");
   await expect(note).toHaveCSS("overflow-y", "auto");
-  await expect(note).toHaveClass(/\bnowheel\b/);
   await expect
     .poll(() =>
       note.evaluate((element) => element.scrollHeight > element.clientHeight),
     )
     .toBe(true);
+  const viewport = page.locator(".react-flow__viewport");
+  const transform = await viewport.evaluate(
+    (element) => getComputedStyle(element).transform,
+  );
+  const box = await note.boundingBox();
+  expect(box).not.toBeNull();
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 120);
+    await expect
+      .poll(() => note.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(viewport).toHaveCSS("transform", transform);
+  }
 });
 
 test("writable mode exposes table and edge controls", async ({ page }) => {

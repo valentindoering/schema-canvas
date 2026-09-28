@@ -1,6 +1,6 @@
 # Release safety
 
-## Before enabling publication
+## Publication policy
 
 The release decisions are:
 
@@ -8,36 +8,25 @@ The release decisions are:
 - source repository: `valentindoering/schema-canvas`, public;
 - license: MIT, copyright Valentin Döring;
 - initial maintainer: `valentindoering`;
-- releases require explicit approval through the `npm-release` GitHub
-  environment.
+- a push to `main` that changes `package.json` starts the release workflow;
+  the version must be advanced before that push.
 
 `@valentindoering/schema-canvas@0.1.1` is the legacy published package. Do not
-unpublish it. The repository now targets the unscoped `schema-canvas` package
-and kept `private: true` through local integration testing. After the unscoped package is
-verified, deprecating the scoped package with a migration message is a separate
-release action that requires explicit approval.
-
-The approved first unscoped release is `0.2.0`. The package name, public
-visibility, MIT license, and removal of the publication guard are approved.
+unpublish it. Deprecating the scoped package with a migration message is a
+separate release action that requires explicit approval.
 
 Do not infer an open-source license from public npm visibility. Do not publish
 code derived from private consumers until ownership and licensing are clear.
 
-## Recommended release path
+## Release path
 
-1. Keep `private: true` through extraction and consumer integration.
-2. Build and test a local tarball with `npm pack --dry-run` and `npm pack`.
-3. Install that tarball in consumer worktrees and complete compatibility tests.
-4. Create the public source repository.
-5. Remove `private: true` only in the approved release change. Publish the first
-   version through the maintainer's authenticated npm account with browser 2FA.
-   If bootstrapping from a local checkout, disable provenance for that one
-   publish: local publication cannot produce GitHub OIDC attestations.
-6. Inspect the registry tarball against the reviewed local candidate.
-7. Configure npm trusted publishing for the new package identity and the
-   GitHub-hosted release workflow. Use the protected `npm-release` environment
-   for release approval.
-8. Publish subsequent versions through that workflow, with provenance enabled.
+For current releases, bump the package version and update this changelog in the
+same change as the source. Merge to `main` after the full quality gate passes.
+The release workflow runs on that push and publishes with npm trusted publishing
+and provenance. Keep the `npm-release` environment limited to `main`, and remove
+its required reviewer only when automatic publication is intended. A manual
+workflow dispatch remains available for recovery, but cannot republish an
+existing version.
 
 The release workflow should use a current Node version, npm trusted publishing
 with OIDC, `id-token: write`, a clean install, the full quality gate, and a
