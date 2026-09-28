@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+test("compact manual zoom controls work in read-only mode", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const controls = page.locator(".schema-canvas__navigation");
+  await expect(controls).toBeVisible();
+  const zoom = () =>
+    page
+      .locator(".react-flow__viewport")
+      .evaluate(
+        (element) =>
+          new DOMMatrixReadOnly(getComputedStyle(element).transform).a,
+      );
+  const before = await zoom();
+  await controls.locator(".react-flow__controls-zoomin").click();
+  await expect.poll(zoom).toBeGreaterThan(before);
+  const zoomedIn = await zoom();
+  await controls.locator(".react-flow__controls-zoomout").click();
+  await expect.poll(zoom).toBeLessThan(zoomedIn);
+  await expect(controls.locator(".react-flow__controls-fitview")).toBeVisible();
+});
+
 test("search finds and focuses a table in read-only mode", async ({ page }) => {
   await page.goto("/");
   const searchButton = page.getByRole("button", { name: "Search tables" });

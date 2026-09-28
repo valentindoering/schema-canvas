@@ -197,6 +197,37 @@
   margin: 8px;
 }
 
+.schema-canvas .schema-canvas__navigation {
+  z-index: 20;
+  overflow: hidden;
+  padding: 3px;
+  border: 1px solid var(--schema-canvas-border);
+  border-radius: var(--schema-canvas-radius);
+  background: var(--schema-canvas-surface);
+  box-shadow: var(--schema-canvas-shadow);
+}
+
+.schema-canvas .schema-canvas__navigation .react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--schema-canvas-text-muted);
+}
+
+.schema-canvas .schema-canvas__navigation .react-flow__controls-button:hover {
+  background: var(--schema-canvas-surface-muted);
+  color: var(--schema-canvas-text);
+}
+
+.schema-canvas .schema-canvas__navigation .react-flow__controls-button svg {
+  max-width: 16px;
+  max-height: 16px;
+}
+
 .schema-canvas__file-input {
   position: absolute;
   width: 1px;
@@ -982,6 +1013,14 @@
 }
 
 @media (max-width: 760px) {
+  .schema-canvas .schema-canvas__navigation {
+    bottom: 72px;
+  }
+
+  .schema-canvas .react-flow__minimap {
+    display: none;
+  }
+
   .schema-canvas__search {
     top: 8px;
     right: 8px;
