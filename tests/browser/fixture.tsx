@@ -1,13 +1,22 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import type { SchemaAnnotation, SchemaLayout } from "../../src/core/index.js";
+import type {
+  SchemaAnnotation,
+  SchemaLayout,
+  SchemaView,
+} from "../../src/core/index.js";
 import {
   SchemaCanvas,
   type SchemaCanvasHandle,
 } from "../../src/react/index.js";
 import "../../src/styles.css";
 import { graph, layout as initialLayout } from "../fixtures.js";
+
+const splitViews: SchemaView[] = [
+  { id: "accounts", label: "Accounts", tableIds: ["accounts"], edgeIds: [] },
+  { id: "projects", label: "Projects", tableIds: ["projects"], edgeIds: [] },
+];
 
 function Fixture() {
   const canvas = useRef<SchemaCanvasHandle>(null);
@@ -70,6 +79,9 @@ function Fixture() {
           ref={canvas}
           onSaveStateChange={(state) => setDirty(state.dirty)}
           graph={graph}
+          {...(new URLSearchParams(location.search).has("splitViews")
+            ? { views: splitViews }
+            : {})}
           layout={layout}
           annotations={annotations}
           writable={writable}

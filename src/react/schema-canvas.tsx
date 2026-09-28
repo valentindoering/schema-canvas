@@ -142,6 +142,12 @@ function SchemaCanvasInner({
     initialTableId ?? null,
   );
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [searchFocusTableId, setSearchFocusTableId] = useState<string | null>(
+    null,
+  );
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const saveStateListener = useRef(onSaveStateChange);
   useLayoutEffect(() => {
@@ -219,10 +225,23 @@ function SchemaCanvasInner({
 
   useEffect(() => setLayout(layoutProp), [layoutProp]);
   useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedSearchQuery(searchQuery.trim().toLocaleLowerCase()),
+      180,
+    );
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+  useEffect(() => {
     focused.current = false;
     setSelectedNodeId(initialTableId ?? null);
     setSelectedEdgeId(null);
   }, [initialTableId]);
+  useEffect(() => {
+    const matchingView = views.find((view) =>
+      view.tableIds.includes(initialTableId ?? ""),
+    );
+    if (matchingView) setSelectedViewId(matchingView.id);
+  }, [initialTableId, views]);
   useEffect(
     () => setAnnotations(hydrateImages(annotationsProp, resolveImage)),
     [annotationsProp, resolveImage],
@@ -319,6 +338,16 @@ function SchemaCanvasInner({
       });
     });
   }, [fitView, initialTableId, model.nodes, reactFlow]);
+
+  useEffect(() => {
+    if (!searchFocusTableId || !reactFlow) return;
+    if (!model.nodes.some((node) => node.id === searchFocusTableId)) return;
+    const tableId = searchFocusTableId;
+    setSearchFocusTableId(null);
+    requestAnimationFrame(() => {
+      void fitView({ nodes: [{ id: tableId }], duration: 350, maxZoom: 1.2 });
+    });
+  }, [fitView, model.nodes, reactFlow, searchFocusTableId]);
 
   const updateLayout = useCallback(
     (recipe: (current: SchemaLayout) => SchemaLayout, save = true) => {
@@ -643,6 +672,31 @@ function SchemaCanvasInner({
     ? graph.edges.find((edge) => edge.id === selectedEdgeId)
     : undefined;
   const saveState = mergeSaveStates(layoutSaveState, annotationSaveState);
+  const searchableTables = useMemo(() => {
+    const visibleTableIds = new Set(views.flatMap((view) => view.tableIds));
+    return graph.tables.filter((table) => visibleTableIds.has(table.id));
+  }, [graph.tables, views]);
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const searchResults =
+    debouncedSearchQuery && debouncedSearchQuery === normalizedSearchQuery
+      ? searchableTables.filter(
+          (table) =>
+            table.label.toLocaleLowerCase().includes(debouncedSearchQuery) ||
+            table.id.toLocaleLowerCase().includes(debouncedSearchQuery),
+        )
+      : [];
+  const selectSearchResult = (tableId: string) => {
+    const matchingView =
+      (selectedView.tableIds.includes(tableId) ? selectedView : undefined) ??
+      views.find((view) => view.tableIds.includes(tableId));
+    if (matchingView) setSelectedViewId(matchingView.id);
+    setSelectedNodeId(tableId);
+    setSelectedEdgeId(null);
+    setSearchFocusTableId(tableId);
+    setSearchOpen(false);
+    setSearchQuery("");
+    onSelectedTableChange?.(tableId);
+  };
 
   return (
     <section
@@ -718,6 +772,81 @@ function SchemaCanvasInner({
           ) : null}
         </div>
       ) : null}
+
+      <div
+        className="schema-canvas__search"
+        role="search"
+        aria-label={labels.searchTables}
+      >
+        <div className="schema-canvas__search-control">
+          {searchOpen ? (
+            <input
+              autoFocus
+              type="search"
+              value={searchQuery}
+              aria-label={labels.searchTables}
+              placeholder={labels.searchTables}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                }
+                if (event.key === "Enter") {
+                  const first = searchableTables.find(
+                    (table) =>
+                      table.label
+                        .toLocaleLowerCase()
+                        .includes(normalizedSearchQuery) ||
+                      table.id
+                        .toLocaleLowerCase()
+                        .includes(normalizedSearchQuery),
+                  );
+                  if (normalizedSearchQuery && first)
+                    selectSearchResult(first.id);
+                }
+              }}
+            />
+          ) : null}
+          <button
+            type="button"
+            aria-label={searchOpen ? labels.closeSearch : labels.searchTables}
+            onClick={() => {
+              setSearchOpen((open) => !open);
+              setSearchQuery("");
+            }}
+          >
+            {searchOpen ? (
+              <span aria-hidden="true">×</span>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="10.8" cy="10.8" r="6.3" />
+                <path d="m15.5 15.5 5 5" />
+              </svg>
+            )}
+          </button>
+        </div>
+        {searchOpen &&
+        normalizedSearchQuery === debouncedSearchQuery &&
+        normalizedSearchQuery ? (
+          <div className="schema-canvas__search-results">
+            {searchResults.length ? (
+              searchResults.map((table) => (
+                <button
+                  key={table.id}
+                  type="button"
+                  onClick={() => selectSearchResult(table.id)}
+                >
+                  <span>{table.label}</span>
+                  {table.id !== table.label ? <small>{table.id}</small> : null}
+                </button>
+              ))
+            ) : (
+              <p>{labels.noMatchingTables}</p>
+            )}
+          </div>
+        ) : null}
+      </div>
 
       {features.unpositionedTray && model.unpositionedTableIds.length ? (
         <aside className="schema-canvas__tray">

@@ -300,6 +300,51 @@ describe("SchemaCanvas", () => {
     expect(save.mock.calls.at(-1)?.[0].value).toHaveLength(1);
   });
 
+  it("switches views when route focus changes to a table in another view", () => {
+    const views = [
+      {
+        id: "accounts",
+        label: "Accounts",
+        tableIds: ["accounts"],
+        edgeIds: [],
+      },
+      {
+        id: "projects",
+        label: "Projects",
+        tableIds: ["projects"],
+        edgeIds: [],
+      },
+    ];
+    const { rerender } = render(
+      <SchemaCanvas
+        graph={graph}
+        views={views}
+        layout={layout}
+        writable={false}
+        initialTableId="accounts"
+        features={{ canvasToolbar: true }}
+      />,
+    );
+    expect(
+      (screen.getByRole("combobox", { name: "View" }) as HTMLSelectElement)
+        .value,
+    ).toBe("accounts");
+    rerender(
+      <SchemaCanvas
+        graph={graph}
+        views={views}
+        layout={layout}
+        writable={false}
+        initialTableId="projects"
+        features={{ canvasToolbar: true }}
+      />,
+    );
+    expect(
+      (screen.getByRole("combobox", { name: "View" }) as HTMLSelectElement)
+        .value,
+    ).toBe("projects");
+  });
+
   it("resolves an asset-only image replacement immediately and saves only its asset", async () => {
     const save = vi.fn();
     const { container } = render(

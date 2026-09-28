@@ -69,6 +69,9 @@ export type SchemaCanvasLabels = {
   deleteAnnotation: string;
   closeEditor: string;
   canvasLabel: string;
+  searchTables: string;
+  closeSearch: string;
+  noMatchingTables: string;
 };
 
 export type SchemaCanvasFeatures = {
@@ -189,6 +192,9 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   deleteAnnotation: "Delete annotation",
   closeEditor: "Close editor",
   canvasLabel: "Database schema canvas",
+  searchTables: "Search tables",
+  closeSearch: "Close search",
+  noMatchingTables: "No matching tables",
 };
 
 export const defaultSchemaCanvasFeatures: SchemaCanvasFeatures = {

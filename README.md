@@ -80,6 +80,10 @@ responsible for deciding who may load or edit the diagram.
 
 Changing `initialTableId` selects and focuses that table without remounting the
 canvas or discarding pending saves, so hosts can use it for route navigation.
+The host maps a table name or ID in its URL to `initialTableId`. The compact
+search button at the upper right finds tables by label or ID across views,
+selects and focuses the chosen table, and calls `onSelectedTableChange` so the
+host can update its route. Search works in read-only and writable modes.
 
 Every table in `graph` renders immediately. Tables without saved coordinates
 appear in a vertical column to the right of the saved diagram, with spacing
