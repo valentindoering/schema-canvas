@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3
+
+- Add a compact, debounced table search that finds labels and IDs across views,
+  selects and focuses a result, and notifies the host for route updates.
+- Switch to the matching view when a host changes `initialTableId`.
+
+Existing layout and annotation files need no migration.
+
 ## 0.2.2
 
 - Let trackpad pinch gestures zoom the canvas over note annotations while

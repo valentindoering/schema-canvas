@@ -1,5 +1,45 @@
 import { expect, test } from "@playwright/test";
 
+test("search finds and focuses a table in read-only mode", async ({ page }) => {
+  await page.goto("/");
+  const searchButton = page.getByRole("button", { name: "Search tables" });
+  const box = await searchButton.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThan((page.viewportSize()?.width ?? 0) - 100);
+  expect(box!.y).toBeLessThan(60);
+
+  await searchButton.click();
+  const search = page.getByRole("searchbox", { name: "Search tables" });
+  await search.fill("PROJ");
+  await page.getByRole("button", { name: "Projects projects" }).click();
+  await expect(page.getByTestId("selected")).toHaveText("projects");
+  await expect(page.locator('[data-id="projects"].selected')).toBeVisible();
+  await expect(page.getByTestId("dirty")).toHaveText("false");
+});
+
+test("search crosses views and keeps the table editor below it", async ({
+  page,
+}) => {
+  await page.goto("/?splitViews=1");
+  await page.getByTestId("mode").click();
+  await expect(page.locator('[data-id="projects"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Search tables" }).click();
+  const search = page.getByRole("searchbox", { name: "Search tables" });
+  await search.fill("missing");
+  await expect(page.getByText("No matching tables")).toBeVisible();
+  await search.fill("projects");
+  await search.press("Enter");
+  await expect(page.getByTestId("selected")).toHaveText("projects");
+  await expect(page.locator('[data-id="projects"].selected')).toBeVisible();
+  const searchBox = await page
+    .getByRole("button", { name: "Search tables" })
+    .boundingBox();
+  const editorBox = await page.locator(".schema-canvas__editor").boundingBox();
+  expect(searchBox).not.toBeNull();
+  expect(editorBox).not.toBeNull();
+  expect(editorBox!.y).toBeGreaterThan(searchBox!.y + searchBox!.height);
+});
+
 test("trackpad pinch zooms over canvas content", async ({ page }) => {
   await page.goto("/");
   const viewport = page.locator(".react-flow__viewport");
