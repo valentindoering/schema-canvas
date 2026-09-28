@@ -6,25 +6,27 @@ script = '''
 set -euo pipefail
 CI=true pnpm install --frozen-lockfile
 node scripts/worktree-dev.mjs start
+python3 .codex/tailnet_review.py up --detect 'app=node scripts/worktree-dev.mjs status'
 '''
 
 [cleanup]
 script = '''
 set -euo pipefail
+python3 .codex/tailnet_review.py down
 node scripts/worktree-dev.mjs stop
 '''
 
 [[actions]]
 name = "Start app"
 icon = "run"
-command = "node scripts/worktree-dev.mjs start"
+command = "node scripts/worktree-dev.mjs start && python3 .codex/tailnet_review.py up --detect 'app=node scripts/worktree-dev.mjs status'"
 
 [[actions]]
 name = "App status"
 icon = "tool"
-command = "node scripts/worktree-dev.mjs status"
+command = "node scripts/worktree-dev.mjs status && python3 .codex/tailnet_review.py status"
 
 [[actions]]
 name = "Stop app"
 icon = "tool"
-command = "node scripts/worktree-dev.mjs stop"
+command = "python3 .codex/tailnet_review.py down && node scripts/worktree-dev.mjs stop"
