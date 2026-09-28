@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Let trackpad pinch gestures zoom the canvas over note annotations while
+  retaining ordinary wheel scrolling inside long notes.
+
+Existing layout and annotation files need no migration.
+
 ## 0.2.1
 
 - Preserve line breaks and long identifiers in note and text annotations. Keep
