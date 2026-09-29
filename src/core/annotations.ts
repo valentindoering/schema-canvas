@@ -232,6 +232,8 @@ function migrateLegacyMarkdown(
   if (kind === "note") {
     return [label ? `# ${label}` : "", text ?? ""].filter(Boolean).join("\n\n");
   }
-  if (!label || label === text) return text;
+  // The old text editor initialized its label to "Text". Do not turn that
+  // placeholder into visible Markdown when there is actual body content.
+  if (!label || label === text || (label === "Text" && text)) return text;
   return [label, text ?? ""].filter(Boolean).join("\n\n");
 }

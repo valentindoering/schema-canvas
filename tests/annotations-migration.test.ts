@@ -157,4 +157,31 @@ describe("annotation file migration", () => {
     expect((await migrateSchemaAnnotationsFile(file)).changed).toBe(false);
     expect(await readFile(file, "utf8")).toBe(bytes);
   });
+
+  it("does not publish the old default Text label as visible content", async () => {
+    const file = await fixtureFile([
+      {
+        id: "caption",
+        kind: "text",
+        label: "Text",
+        text: "A quiet caption",
+        x: 15,
+        y: 25,
+        width: 300,
+        height: 100,
+      },
+    ]);
+    await migrateSchemaAnnotationsFile(file);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual([
+      {
+        id: "caption",
+        kind: "text",
+        x: 15,
+        y: 25,
+        width: 300,
+        height: 100,
+        markdown: "A quiet caption",
+      },
+    ]);
+  });
 });
