@@ -63,6 +63,14 @@ describe("core contracts", () => {
     });
   });
 
+  it("preserves an explicit dark arrow override through layout parsing", () => {
+    const edge = graph.edges[0]!;
+    const candidate = setSchemaEdgeLayout(layout, edge, { muted: false });
+    expect(
+      getSchemaEdgeLayout(parseSchemaLayout(candidate, graph), edge)?.muted,
+    ).toBe(false);
+  });
+
   it("reads a composite edge route stored under a source-column key", () => {
     const compositeGraph = {
       tables: [
@@ -138,6 +146,23 @@ describe("core contracts", () => {
       hideIncomingArrows: true,
       hideMutedIncomingArrows: true,
     });
+  });
+
+  it("accepts older layouts and preserves optional table Markdown and palette choices", () => {
+    expect(
+      parseSchemaLayout({ projects: { x: 0, y: 0 } }, graph).projects,
+    ).not.toHaveProperty("markdown");
+    expect(
+      parseSchemaLayout(
+        {
+          projects: { x: 0, y: 0, appearance: "teal", markdown: "# Overview" },
+        },
+        graph,
+      ).projects,
+    ).toMatchObject({ appearance: "teal", markdown: "# Overview" });
+    expect(() =>
+      parseSchemaLayout({ projects: { x: 0, y: 0, markdown: 42 } }, graph),
+    ).toThrow("invalid Markdown");
   });
 
   it("rejects unknown tables, fields, and malformed edge settings", () => {
@@ -272,8 +297,7 @@ describe("core contracts", () => {
         {
           id: "note",
           kind: "note",
-          label: "Reminder",
-          text: "Keep this nearby",
+          markdown: "# Reminder\n\nKeep this nearby",
           x: 20,
           y: 40,
           width: 300,
@@ -281,5 +305,66 @@ describe("core contracts", () => {
         },
       ],
     });
+  });
+
+  it("migrates text labels without repeating identical text", () => {
+    const parsed = parseSchemaAnnotations([
+      {
+        id: "heading",
+        kind: "text",
+        label: "Starships",
+        text: "Starships",
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 100,
+      },
+      {
+        id: "detail",
+        kind: "text",
+        label: "Context",
+        text: "More detail",
+        x: 0,
+        y: 120,
+        width: 300,
+        height: 100,
+      },
+    ]);
+    expect(parsed.find((item) => item.id === "heading")?.markdown).toBe(
+      "Starships",
+    );
+    expect(parsed.find((item) => item.id === "detail")?.markdown).toBe(
+      "Context\n\nMore detail",
+    );
+    const saved = serializeSchemaAnnotations(parsed, "array");
+    if (!Array.isArray(saved)) throw new Error("Expected annotation array.");
+    for (const annotation of saved) {
+      expect(annotation).not.toHaveProperty("label");
+      expect(annotation).not.toHaveProperty("text");
+    }
+    expect(
+      serializeSchemaAnnotations(parseSchemaAnnotations(saved), "array"),
+    ).toEqual(saved);
+  });
+
+  it("serializes annotations without changing custom-grid positions", () => {
+    const annotations = parseSchemaAnnotations(
+      [
+        {
+          id: "starship-note",
+          kind: "note",
+          markdown: "# Departure",
+          x: 15,
+          y: 15,
+          width: 125,
+          height: 95,
+        },
+      ],
+      { gridSize: 5 },
+    );
+    const stored = serializeSchemaAnnotations(annotations, "array");
+    expect(stored).toEqual([
+      expect.objectContaining({ x: 15, y: 15, width: 125, height: 95 }),
+    ]);
   });
 });

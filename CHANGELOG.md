@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0
+
+- Add source-definition inspection with syntax highlighting, Markdown notes,
+  Markdown text, and table descriptions.
+- Improve automatic arrow ports, drag targets, distance-muted arrows, zoom,
+  keyboard editing, multi-selection, and compact canvas controls.
+- Read one-table-per-file PostgreSQL directories, including foreign keys
+  declared in separate files.
+- Add `schema-canvas/server/annotations` and the
+  `schema-canvas migrate-annotations --annotations <file>` command.
+
+Existing layout files remain valid; table Markdown and explicit arrow muting are
+additive fields. Existing note and text `label`/`text` values render as Markdown
+on read. The migration command converts those values to a single `markdown`
+field while preserving geometry, order, and other stored fields. It writes
+atomically, checks for concurrent edits, and rejects malformed or ambiguous
+records. Hosts choose when to run it because the package cannot know their
+annotation file paths.
+
 ## 0.2.4
 
 - Place compact zoom in, zoom out, and fit controls at the lower center of the

@@ -1,10 +1,11 @@
 import { StrictMode, useCallback, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
-import type {
-  SchemaAnnotation,
-  SchemaLayout,
-  SchemaTable,
+import {
+  parseSchemaAnnotations,
+  serializeSchemaAnnotations,
+  type SchemaAnnotation,
+  type SchemaLayout,
 } from "../../src/core/index.js";
 import { SchemaCanvas } from "../../src/react/index.js";
 import "../../src/styles.css";
@@ -28,7 +29,7 @@ function Playground() {
     readStored(layoutKey, initialLayout),
   );
   const [annotations, setAnnotations] = useState<SchemaAnnotation[]>(() =>
-    readStored(annotationsKey, initialAnnotations(routeCardUrl)),
+    readStoredAnnotations(initialAnnotations(routeCardUrl)),
   );
   const [assets, setAssets] = useState<Record<string, string>>(() =>
     readStored(assetsKey, {}),
@@ -82,45 +83,31 @@ function Playground() {
           writable
           style={canvasStyle}
           conciseFieldCount={5}
+          automaticMuteDistance={650}
           resolveImage={resolveImage}
           onUploadImage={uploadImage}
-          renderTableDetails={(table) => <TableSourcePreview table={table} />}
+          onLoadTableDefinition={(table) => {
+            const file = sourceFileForTable(table.id);
+            if (!file) throw new Error(`No source file for ${table.id}.`);
+            return { path: file.path, source: file.source };
+          }}
           onSaveLayout={async ({ value }) => {
             setLayout(value);
             localStorage.setItem(layoutKey, JSON.stringify(value));
             return { value, revision: crypto.randomUUID() };
           }}
           onSaveAnnotations={async ({ value }) => {
-            setAnnotations(value);
-            localStorage.setItem(annotationsKey, JSON.stringify(value));
-            return { value, revision: crypto.randomUUID() };
+            const normalized = parseSchemaAnnotations(value);
+            setAnnotations(normalized);
+            localStorage.setItem(
+              annotationsKey,
+              JSON.stringify(serializeSchemaAnnotations(normalized, "array")),
+            );
+            return { value: normalized, revision: crypto.randomUUID() };
           }}
         />
       </section>
     </main>
-  );
-}
-
-function TableSourcePreview({ table }: { table: SchemaTable }) {
-  const file = sourceFileForTable(table.id);
-  if (!file) return null;
-  return (
-    <section
-      className="playground__source-preview"
-      aria-label={`${table.label} schema source`}
-    >
-      <header>
-        <div>
-          <span>Derived from</span>
-          <strong>{file.path}</strong>
-        </div>
-        <small>Read only</small>
-      </header>
-      <p>{file.description}</p>
-      <pre aria-label={`${file.path} source`}>
-        <code>{file.source}</code>
-      </pre>
-    </section>
   );
 }
 
@@ -132,6 +119,22 @@ function readStored<T>(key: string, fallback: T): T {
   } catch {
     localStorage.removeItem(key);
     return fallback;
+  }
+}
+
+function readStoredAnnotations(fallback: SchemaAnnotation[]) {
+  const stored = localStorage.getItem(annotationsKey);
+  if (!stored) return parseSchemaAnnotations(fallback);
+  try {
+    const candidate: unknown = JSON.parse(stored);
+    const annotations = parseSchemaAnnotations(candidate);
+    const canonical = serializeSchemaAnnotations(annotations, "array");
+    if (JSON.stringify(candidate) !== JSON.stringify(canonical)) {
+      localStorage.setItem(annotationsKey, JSON.stringify(canonical));
+    }
+    return annotations;
+  } catch (cause) {
+    throw new Error("Could not load saved playground annotations.", { cause });
   }
 }
 

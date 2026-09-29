@@ -78,6 +78,30 @@ export function parseSchemaAnnotations(
         `Annotation \"${id}\" text must be a string.`,
         4000,
       );
+      const markdown = optionalString(
+        item.markdown,
+        `Annotation \"${id}\" Markdown must be a string.`,
+        5000,
+      );
+      const legacyLabel = optionalString(
+        item.label,
+        `Annotation \"${id}\" label must be a string.`,
+        120,
+      );
+      const isMarkdown = kind === "note" || kind === "text";
+      if (!isMarkdown && markdown !== undefined) {
+        throw new Error(
+          `Annotation \"${id}\" cannot use Markdown with kind \"${kind}\".`,
+        );
+      }
+      if (isMarkdown && markdown !== undefined && (legacyLabel || text)) {
+        throw new Error(
+          `Annotation \"${id}\" mixes Markdown with legacy label or text.`,
+        );
+      }
+      const content = isMarkdown
+        ? (markdown ?? migrateLegacyMarkdown(kind, legacyLabel, text))
+        : undefined;
       const asset = optionalString(
         item.asset,
         `Annotation \"${id}\" asset must be a string.`,
@@ -97,11 +121,15 @@ export function parseSchemaAnnotations(
       const annotation: SchemaAnnotation = {
         id,
         kind,
-        label: requiredString(
-          item.label,
-          `Annotation \"${id}\" needs a label.`,
-          120,
-        ),
+        ...(!isMarkdown
+          ? {
+              label: requiredString(
+                item.label,
+                `Annotation \"${id}\" needs a label.`,
+                120,
+              ),
+            }
+          : {}),
         x: snap(
           finiteNumber(item.x, `Annotation \"${id}\" needs a finite x.`),
           gridSize,
@@ -134,7 +162,8 @@ export function parseSchemaAnnotations(
         ),
         color: rawColor as SchemaAnnotationColor,
       };
-      if (text) annotation.text = text;
+      if (content) annotation.markdown = content;
+      if (!isMarkdown && text) annotation.text = text;
       if (asset) annotation.asset = asset;
       if (src) annotation.src = src;
       if (kind === "text") {
@@ -156,32 +185,53 @@ export function serializeSchemaAnnotations(
   envelope: "array" | "object" = "object",
   options: { omitDefaults?: boolean } = {},
 ) {
-  const value = annotations.map(
-    ({ src: _src, ...annotation }): Omit<SchemaAnnotation, "src"> | object => {
-      if (!options.omitDefaults) return annotation;
-      return {
-        id: annotation.id,
-        ...(annotation.kind !== "frame" ? { kind: annotation.kind } : {}),
-        label: annotation.label,
-        ...(annotation.kind === "note" && annotation.text
-          ? { text: annotation.text }
-          : {}),
-        ...(annotation.kind === "image" && annotation.asset
-          ? { asset: annotation.asset }
-          : {}),
-        x: annotation.x,
-        y: annotation.y,
-        width: annotation.width,
-        height: annotation.height,
-        ...(annotation.color !== "slate" ? { color: annotation.color } : {}),
-        ...(annotation.kind === "text" && annotation.text
-          ? { text: annotation.text }
-          : {}),
-        ...(annotation.kind === "text" && annotation.fontSize !== undefined
-          ? { fontSize: annotation.fontSize }
-          : {}),
-      };
-    },
+  const validated = new Map(
+    parseSchemaAnnotations(annotations).map((annotation) => [
+      annotation.id,
+      annotation,
+    ]),
   );
+  const value = annotations.map((source) => {
+    const annotation = validated.get(source.id)!;
+    const isMarkdown = annotation.kind === "note" || annotation.kind === "text";
+    return {
+      id: annotation.id,
+      ...(!options.omitDefaults || annotation.kind !== "frame"
+        ? { kind: annotation.kind }
+        : {}),
+      ...(isMarkdown
+        ? annotation.markdown
+          ? { markdown: annotation.markdown }
+          : {}
+        : { label: annotation.label }),
+      ...(!isMarkdown && annotation.text ? { text: annotation.text } : {}),
+      ...(annotation.asset ? { asset: annotation.asset } : {}),
+      ...(annotation.kind === "image" && !annotation.asset && annotation.src
+        ? { src: annotation.src }
+        : {}),
+      x: source.x,
+      y: source.y,
+      width: source.width,
+      height: source.height,
+      ...(!options.omitDefaults || annotation.color !== "slate"
+        ? { color: annotation.color }
+        : {}),
+      ...(annotation.kind === "text" && annotation.fontSize !== undefined
+        ? { fontSize: annotation.fontSize }
+        : {}),
+    };
+  });
   return envelope === "array" ? value : { annotations: value };
+}
+
+function migrateLegacyMarkdown(
+  kind: "note" | "text",
+  label: string | undefined,
+  text: string | undefined,
+) {
+  if (kind === "note") {
+    return [label ? `# ${label}` : "", text ?? ""].filter(Boolean).join("\n\n");
+  }
+  if (!label || label === text) return text;
+  return [label, text ?? ""].filter(Boolean).join("\n\n");
 }

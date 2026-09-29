@@ -15,7 +15,9 @@ import {
 
 export type TableNodeData = {
   table: SchemaTable;
+  reconnectTargetKind?: "source" | "target";
   appearance: SchemaTableAppearance;
+  markdown?: string;
   fieldDisplay: SchemaTableFieldDisplay;
   conciseFieldCount: number;
   expanded: boolean;
@@ -51,7 +53,9 @@ export type CanvasEdge = Edge<CanvasEdgeData, "straight" | "smoothstep">;
 export type BuildCanvasModelOptions = {
   view: SchemaView;
   selectedNodeId?: string | null;
+  selectedTableIds?: ReadonlySet<string>;
   selectedEdgeId?: string | null;
+  reconnecting?: { tableId: string; kind: "source" | "target" } | null;
   nodeDimensions?: Readonly<
     Record<string, { width: number; height: number } | undefined>
   >;
@@ -99,7 +103,11 @@ export function buildCanvasModel(
         ...(measured ? { measured } : {}),
         data: {
           table,
+          ...(options.reconnecting?.tableId === table.id
+            ? { reconnectTargetKind: options.reconnecting.kind }
+            : {}),
           appearance: entry?.appearance ?? "standard",
+          ...(entry?.markdown ? { markdown: entry.markdown } : {}),
           fieldDisplay,
           conciseFieldCount: options.conciseFieldCount,
           expanded: options.expandedTableIds.has(table.id),
@@ -113,7 +121,9 @@ export function buildCanvasModel(
         draggable: options.writable,
         deletable: false,
         selectable: true,
-        selected: options.selectedNodeId === table.id,
+        selected:
+          options.selectedTableIds?.has(table.id) ??
+          options.selectedNodeId === table.id,
         zIndex: 10,
         className: `schema-canvas__table schema-canvas__table--${entry?.appearance ?? "standard"}`,
       };
@@ -137,31 +147,31 @@ export function buildCanvasModel(
         positionById.get(edge.target),
         options.automaticMuteDistance,
       );
+      const muted = route?.muted ?? automaticallyMuted;
       if (
         route?.hidden ||
         sourceLayout?.hideArrows ||
         targetLayout?.hideIncomingArrows ||
-        (targetLayout?.hideMutedIncomingArrows &&
-          (automaticallyMuted || route?.muted))
+        (targetLayout?.hideMutedIncomingArrows && muted)
       ) {
         return [];
       }
-      const muted = automaticallyMuted || route?.muted === true;
       const selected = options.selectedEdgeId === edge.id;
       const inferredPorts = inferEdgePorts(
         edge,
         positionById,
         options.nodeDimensions,
+        { source: route?.source, target: route?.target },
       );
       const style = {
         stroke: muted
           ? edge.optional
             ? "#e2e8f0"
-            : "#cbd5e1"
+            : "#94a3b8"
           : edge.optional
             ? "#475569"
             : "#020617",
-        strokeWidth: selected ? (muted ? 2 : 3) : muted ? 0.9 : 2,
+        strokeWidth: selected ? (muted ? 2 : 3) : muted ? 1.3 : 2,
         ...((route?.style ?? (edge.optional ? "dashed" : "solid")) === "dashed"
           ? { strokeDasharray: "8 5" }
           : route?.style === "dotted"
@@ -190,12 +200,12 @@ export function buildCanvasModel(
             : "schema-canvas__edge",
           style,
           selectable: options.writable,
-          reconnectable: options.writable,
+          reconnectable: options.writable && selected,
           deletable: false,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: muted ? 15 : 20,
-            height: muted ? 15 : 20,
+            width: muted ? 36 : 20,
+            height: muted ? 36 : 20,
             color: style.stroke,
           },
         },
@@ -259,6 +269,10 @@ export function inferEdgePorts(
   dimensions: Readonly<
     Record<string, { width: number; height: number } | undefined>
   > = {},
+  fixed: {
+    source?: SchemaPortSide | undefined;
+    target?: SchemaPortSide | undefined;
+  } = {},
 ): { source: SchemaPortSide; target: SchemaPortSide } {
   const source = positions.get(edge.source);
   const target = positions.get(edge.target);
@@ -266,25 +280,65 @@ export function inferEdgePorts(
 
   const sourceSize = dimensions[edge.source] ?? DEFAULT_TABLE_SIZE;
   const targetSize = dimensions[edge.target] ?? DEFAULT_TABLE_SIZE;
-  const sourceCenter = {
-    x: source.x + sourceSize.width / 2,
-    y: source.y + sourceSize.height / 2,
-  };
-  const targetCenter = {
-    x: target.x + targetSize.width / 2,
-    y: target.y + targetSize.height / 2,
-  };
-  const dx = targetCenter.x - sourceCenter.x;
-  const dy = targetCenter.y - sourceCenter.y;
-
-  if (Math.abs(dy) > Math.abs(dx)) {
-    return dy >= 0
-      ? { source: "bottom", target: "top" }
-      : { source: "top", target: "bottom" };
+  const sourceSides = fixed.source ? [fixed.source] : portSides;
+  const targetSides = fixed.target ? [fixed.target] : portSides;
+  let best = { source: sourceSides[0]!, target: targetSides[0]! };
+  let bestScore = Infinity;
+  for (const sourceSide of sourceSides) {
+    const from = portPosition(source, sourceSize, sourceSide);
+    for (const targetSide of targetSides) {
+      const to = portPosition(target, targetSize, targetSide);
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const sourceFacing = (dx * from.nx + dy * from.ny) / distance;
+      const targetFacing = (-dx * to.nx - dy * to.ny) / distance;
+      // Prefer ports facing the connection; nearly tangential paths look as
+      // though they slide along the table border instead of entering it.
+      const facingPenalty =
+        110 * (2 - sourceFacing - targetFacing) +
+        (sourceFacing < 0.08 ? 600 : 0) +
+        (targetFacing < 0.08 ? 600 : 0);
+      const score = distance + facingPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { source: sourceSide, target: targetSide };
+      }
+    }
   }
-  return dx >= 0
-    ? { source: "right", target: "left" }
-    : { source: "left", target: "right" };
+  return best;
+}
+
+function portPosition(
+  position: { x: number; y: number },
+  size: { width: number; height: number },
+  side: SchemaPortSide,
+) {
+  const horizontal = side.includes("left")
+    ? 0.2
+    : side.includes("right")
+      ? 0.8
+      : 0.5;
+  if (side.startsWith("top"))
+    return {
+      x: position.x + size.width * horizontal,
+      y: position.y,
+      nx: 0,
+      ny: -1,
+    };
+  if (side.startsWith("bottom"))
+    return {
+      x: position.x + size.width * horizontal,
+      y: position.y + size.height,
+      nx: 0,
+      ny: 1,
+    };
+  return {
+    x: position.x + (side === "left" ? 0 : size.width),
+    y: position.y + size.height / 2,
+    nx: side === "left" ? -1 : 1,
+    ny: 0,
+  };
 }
 
 export function fallbackPosition(index: number) {

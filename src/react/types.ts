@@ -31,6 +31,13 @@ export type SchemaCanvasLabels = {
   standard: string;
   quiet: string;
   highlighted: string;
+  paletteSlate: string;
+  paletteBlue: string;
+  paletteTeal: string;
+  paletteAmber: string;
+  paletteRose: string;
+  paletteViolet: string;
+  tableMarkdown: string;
   fields: string;
   full: string;
   concise: string;
@@ -55,8 +62,14 @@ export type SchemaCanvasLabels = {
   bottomRight: string;
   hidden: string;
   muted: string;
+  edgeTone: string;
+  toneAuto: string;
+  toneDark: string;
+  toneMuted: string;
   label: string;
   text: string;
+  note: string;
+  markdown: string;
   color: string;
   slate: string;
   blue: string;
@@ -69,9 +82,15 @@ export type SchemaCanvasLabels = {
   deleteAnnotation: string;
   closeEditor: string;
   canvasLabel: string;
+  canvasActions: string;
+  multiSelectHint: string;
   searchTables: string;
   closeSearch: string;
   noMatchingTables: string;
+  viewDefinition: string;
+  definitionLoading: string;
+  definitionFailed: string;
+  closeDefinition: string;
 };
 
 export type SchemaCanvasFeatures = {
@@ -116,6 +135,12 @@ export type SchemaCanvasProps = {
   resolveImage?: (asset: string) => string | undefined;
   onSelectedTableChange?: (tableId: string | null) => void;
   renderTableDetails?: (table: SchemaTable) => ReactNode;
+  /** The host loads source text after the user asks to inspect a table. */
+  onLoadTableDefinition?: (
+    table: SchemaTable,
+  ) =>
+    | Promise<{ path: string; source: string }>
+    | { path: string; source: string };
   className?: string;
   style?: CSSProperties;
 };
@@ -154,11 +179,18 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   standard: "Standard",
   quiet: "Quiet",
   highlighted: "Highlighted",
+  paletteSlate: "Slate",
+  paletteBlue: "Blue",
+  paletteTeal: "Teal",
+  paletteAmber: "Amber",
+  paletteRose: "Rose",
+  paletteViolet: "Violet",
+  tableMarkdown: "Table Markdown",
   fields: "Fields",
   full: "Show all attributes",
   concise: "Show key attributes",
-  showMore: "Show remaining attributes",
-  showLess: "Show key attributes",
+  showMore: "Show more",
+  showLess: "Show less",
   highlightField: "Highlight field",
   hideOutgoing: "Hide outgoing edges",
   hideIncoming: "Hide incoming edges",
@@ -178,8 +210,14 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   bottomRight: "Bottom right",
   hidden: "Hidden",
   muted: "Muted",
+  edgeTone: "Arrow color",
+  toneAuto: "Automatic color",
+  toneDark: "Keep dark",
+  toneMuted: "Keep gray",
   label: "Label",
   text: "Text",
+  note: "Note",
+  markdown: "Markdown",
   color: "Color",
   slate: "Slate",
   blue: "Blue",
@@ -192,9 +230,15 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   deleteAnnotation: "Delete annotation",
   closeEditor: "Close editor",
   canvasLabel: "Database schema canvas",
+  canvasActions: "Canvas actions",
+  multiSelectHint: "Click to select more",
   searchTables: "Search tables",
   closeSearch: "Close search",
   noMatchingTables: "No matching tables",
+  viewDefinition: "View definition",
+  definitionLoading: "Loading definition…",
+  definitionFailed: "Could not load definition",
+  closeDefinition: "Close definition",
 };
 
 export const defaultSchemaCanvasFeatures: SchemaCanvasFeatures = {

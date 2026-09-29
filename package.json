@@ -1,6 +1,6 @@
 {
   "name": "schema-canvas",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "A framework-neutral database schema canvas for React applications.",
   "license": "MIT",
   "repository": {
@@ -48,6 +48,10 @@
       "types": "./dist/server/layout/index.d.ts",
       "import": "./dist/server/layout/index.js"
     },
+    "./server/annotations": {
+      "types": "./dist/server/annotations/index.d.ts",
+      "import": "./dist/server/annotations/index.js"
+    },
     "./styles.css": "./dist/styles.css"
   },
   "bin": {
@@ -81,6 +85,8 @@
   },
   "dependencies": {
     "elkjs": "^0.11.1",
+    "highlight.js": "^11.12.0",
+    "react-markdown": "^10.1.0",
     "typescript": "^5.9.2"
   },
   "peerDependencies": {

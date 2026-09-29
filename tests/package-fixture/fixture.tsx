@@ -8,6 +8,7 @@ import {
 import { parseConvexSchema } from "schema-canvas/server/convex";
 import { createJsonStore } from "schema-canvas/server/json-store";
 import { checkSchemaLayout } from "schema-canvas/server/layout";
+import { migrateSchemaAnnotationsFile } from "schema-canvas/server/annotations";
 import { parsePostgresSchema } from "schema-canvas/server/postgres";
 
 const graph = parsePostgresSchema(
@@ -16,7 +17,11 @@ const graph = parsePostgresSchema(
 const layout = checkSchemaLayout({}, graph).layout;
 parseSchemaAnnotations([]);
 
-export const adapters = { parseConvexSchema, createJsonStore };
+export const adapters = {
+  parseConvexSchema,
+  createJsonStore,
+  migrateSchemaAnnotationsFile,
+};
 
 export const canvas = (
   <SchemaCanvas

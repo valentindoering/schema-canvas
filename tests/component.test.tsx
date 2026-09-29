@@ -21,6 +21,11 @@ class ResizeObserverStub {
 vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 afterEach(cleanup);
 
+function clickAdd(name: string) {
+  fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
 describe("SchemaCanvas", () => {
   it("exposes immediate dirty state and flushes both channels before navigation", async () => {
     const ref = createRef<SchemaCanvasHandle>();
@@ -39,7 +44,7 @@ describe("SchemaCanvas", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    clickAdd("Add note");
     expect(save).not.toHaveBeenCalled();
     expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({
       dirty: true,
@@ -138,11 +143,9 @@ describe("SchemaCanvas", () => {
           onSaveAnnotations={save}
         />,
       );
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: channel === "layout" ? "Quiet" : "Add note",
-        }),
-      );
+      if (channel === "layout")
+        fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
+      else clickAdd("Add note");
       const handle = ref.current!;
       let flushing!: Promise<void>;
       act(() => {
@@ -151,11 +154,9 @@ describe("SchemaCanvas", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: channel === "layout" ? "Highlighted" : "Add text",
-        }),
-      );
+      if (channel === "layout")
+        fireEvent.click(screen.getByRole("button", { name: "Highlighted" }));
+      else clickAdd("Add text");
       unmount();
       finish();
       await flushing;
@@ -188,7 +189,7 @@ describe("SchemaCanvas", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    clickAdd("Add note");
     let settled = false;
     let flushing!: Promise<unknown>;
     act(() => {
@@ -232,7 +233,7 @@ describe("SchemaCanvas", () => {
         }}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    clickAdd("Add note");
     unmount();
     await waitFor(() =>
       expect(notify.mock.calls.at(-1)?.[0]).toMatchObject({
@@ -258,11 +259,9 @@ describe("SchemaCanvas", () => {
           onSaveAnnotations={save}
         />,
       );
-      fireEvent.click(
-        screen.getByRole("button", {
-          name: channel === "layout" ? "Quiet" : "Add note",
-        }),
-      );
+      if (channel === "layout")
+        fireEvent.click(screen.getByRole("button", { name: "Quiet" }));
+      else clickAdd("Add note");
       expect(save).not.toHaveBeenCalled();
       unmount();
       await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
@@ -279,7 +278,7 @@ describe("SchemaCanvas", () => {
         onSaveAnnotations={save}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    clickAdd("Add note");
     rerender(
       <SchemaCanvas
         graph={graph}
@@ -422,6 +421,7 @@ describe("SchemaCanvas", () => {
       />,
     );
     expect(screen.getByRole("toolbar", { name: "Add" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     for (const name of ["Add frame", "Add note", "Add text", "Add image"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
@@ -537,7 +537,7 @@ describe("SchemaCanvas", () => {
         />
       </div>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add frame" }));
+    clickAdd("Add frame");
     expect(
       screen.getByRole("button", { name: "Delete annotation" }),
     ).toBeTruthy();
@@ -560,6 +560,7 @@ describe("SchemaCanvas", () => {
         />
       </div>,
     );
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
     expect(
       screen.getByRole("button", { name: "Rahmen hinzufügen" }),
     ).toBeTruthy();

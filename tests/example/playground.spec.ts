@@ -50,30 +50,46 @@ test("shows the fictional schema and its editable features", async ({
     page.getByRole("heading", { name: "Schema Canvas playground" }),
   ).toBeVisible();
   await expect(page.getByText("Sky ports", { exact: true })).toHaveCount(1);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByRole("button", { name: "Add frame" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add text" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add image" })).toBeVisible();
 });
 
+test("shows distance-muted gray arrows alongside dark arrows", async ({
+  page,
+}) => {
+  await expect(
+    page.locator('[data-id="edge-voyages.originPortId"]'),
+  ).toHaveClass(/schema-canvas__edge--muted/);
+  await expect(
+    page.locator('[data-id="edge-airships.homePortId"]'),
+  ).not.toHaveClass(/schema-canvas__edge--muted/);
+});
+
 test("shows which fictional source file produced a selected table", async ({
   page,
 }) => {
   await page.getByText("Airships", { exact: true }).click();
-  const details = page.getByLabel("Airships schema source");
-  await expect(details).toContainText("Derived from");
+  await page.getByRole("button", { name: "View definition" }).click();
+  const details = page.getByRole("dialog", {
+    name: "Airships View definition",
+  });
   await expect(
     details.getByText("schema/fleet.ts", { exact: true }),
   ).toBeVisible();
   await expect(details.getByLabel("schema/fleet.ts source")).toContainText(
     "airships: table",
   );
-  await expect(page.getByText("Schema source", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close definition" }).click();
+  await expect(details).toHaveCount(0);
 });
 
 test("persists edits locally and can reset them", async ({ page }) => {
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByRole("button", { name: "Add note" }).click();
-  await page.getByLabel("Label").fill("Review marker");
+  await page.getByLabel("Markdown").fill("# Review marker");
   const marker = page
     .locator(".schema-canvas__annotation-card")
     .filter({ hasText: "Review marker" });
@@ -91,4 +107,39 @@ test("persists edits locally and can reset them", async ({ page }) => {
 
   await page.getByRole("button", { name: "Reset example" }).click();
   await expect(marker).toHaveCount(0);
+});
+
+test("migrates saved browser annotations to single-field Markdown", async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    localStorage.setItem(
+      "schema-canvas-example-annotations",
+      JSON.stringify([
+        {
+          id: "legacy-note",
+          kind: "note",
+          label: "Review",
+          text: "Check the model",
+          x: 0,
+          y: 0,
+          width: 300,
+          height: 180,
+          color: "slate",
+        },
+      ]),
+    );
+  });
+  await page.reload();
+  await expect(
+    page.locator(".schema-canvas__annotation-card--note h1"),
+  ).toHaveText("Review");
+  const saved = await page.evaluate(() =>
+    JSON.parse(
+      localStorage.getItem("schema-canvas-example-annotations") ?? "[]",
+    ),
+  );
+  expect(saved[0].markdown).toBe("# Review\n\nCheck the model");
+  expect(saved[0]).not.toHaveProperty("label");
+  expect(saved[0]).not.toHaveProperty("text");
 });

@@ -16,7 +16,9 @@ are packed, tested, inspected, and consumer-verified before publication.
 - Full and concise field views, temporary expansion, field highlights, table
   appearance, eight edge ports, straight and elbow routing, automatic and
   explicit edge muting, and edge visibility controls.
-- Frames, titled notes, free text, and image annotations with direct on-canvas
+- Source definition popup with syntax highlighting for TypeScript, JavaScript,
+  SQL, JSON, HTML, CSS, YAML, shell, and Python files.
+- Frames, Markdown notes, Markdown text, and image annotations with direct on-canvas
   resize. Their numeric dimensions remain part of the serialized model.
 - Image replacement, visible upload errors, and aspect-ratio-preserving image resize.
 - Read-only and writable modes controlled by the host.
@@ -43,6 +45,7 @@ schema-canvas/server/convex
 schema-canvas/server/postgres
 schema-canvas/server/json-store
 schema-canvas/server/layout
+schema-canvas/server/annotations
 schema-canvas/styles.css
 ```
 
@@ -68,7 +71,14 @@ export function Diagram({ graph, layout, writable }) {
       onSelectedTableChange={(tableId) => {
         updateRoute(tableId);
       }}
-      renderTableDetails={(table) => <ReadOnlySourcePreview table={table} />}
+      onLoadTableDefinition={async (table) => {
+        const response = await fetch(
+          `/api/schema-source/${encodeURIComponent(table.id)}`,
+        );
+        if (!response.ok)
+          throw new Error(`Source request failed: ${response.status}`);
+        return response.json(); // { path: string, source: string }
+      }}
     />
   );
 }
@@ -81,7 +91,7 @@ responsible for deciding who may load or edit the diagram.
 Changing `initialTableId` selects and focuses that table without remounting the
 canvas or discarding pending saves, so hosts can use it for route navigation.
 The host maps a table name or ID in its URL to `initialTableId`. The compact
-search button at the upper right finds tables by label or ID across views,
+search button at the upper left finds tables by label or ID across views,
 selects and focuses the chosen table, and calls `onSelectedTableChange` so the
 host can update its route. Search works in read-only and writable modes.
 
@@ -91,13 +101,44 @@ based on their height. Existing table and annotation positions stay untouched.
 These fallback positions are not saved until the table is edited or moved.
 Tables can be dragged when `writable` is true. The default canvas has no
 permanent action toolbar or new-table tray.
-Table and edge editors appear after selection, and annotation actions stay in
-a compact icon toolbar at the lower left. Selected annotations resize through
+Table and edge editors appear after selection. A plus button opens icon-only
+annotation actions at the lower left. Selected annotations resize through
 drag handles on the canvas. Hosts can enable the optional canvas toolbar or
 unpositioned-table tray through feature switches when their route needs them.
+In writable mode, a brief hint appears while dragging to show that Shift-click
+adds tables to the selection. A regular click selects one table.
 Automatic arrangement requires explicit `autoLayout: true`; it is disabled by
-default. Compact zoom in, zoom out, and fit controls sit at the lower center;
-set `navigationControls: false` to hide them.
+default. Search, undo, and redo share the upper-left dock. Compact zoom in,
+zoom out, and fit controls stay at the lower left beside Add; set
+`navigationControls: false` to hide the zoom controls.
+
+In writable mode, canvas focus supports Cmd/Ctrl+D to duplicate a selected
+annotation, Cmd/Ctrl+C and Cmd/Ctrl+V to copy and paste annotations, and
+Cmd/Ctrl+Z or Cmd/Ctrl+Shift+Z to undo or redo canvas edits. Ctrl+Y also
+redoes. The clipboard and history belong to the current canvas session.
+Shortcuts leave inputs and Markdown editors alone. Delete/Backspace never
+removes annotations; use the explicit delete action in the editor.
+
+Notes and text annotations use one Markdown field. They render headings,
+emphasis, lists, quotes, code, and links. Raw
+HTML and embedded images are not rendered. A writable table can also store
+Markdown in its optional `layout[tableId].markdown` field; it appears between
+the title and attributes. Existing layouts without that field remain valid.
+The appearance editor uses icon-only swatches for three neutral presets and
+six coordinated colors. Hosts may override their CSS colors.
+
+Without a saved port choice, each arrow compares the actual table bounds and
+the available port positions. It favors short connections that leave and enter
+the tables from facing sides, including corner ports for diagonal placement.
+The choice updates while a table moves. A saved source or target port remains
+fixed, and the other end is inferred around it. Select an arrow to expose its
+white endpoint circles; only that arrow can be reconnected. Drag a circle
+toward a highlighted port on the same source or target table. A release near
+a port snaps to it. The edge editor offers Automatic, Keep dark, and Keep gray
+color choices; `muted: false` persists the dark override even beyond the
+automatic distance threshold. The default dot backdrop is
+static while zooming, so pinch gestures do not repeatedly redraw an SVG dot
+pattern.
 
 ## Save lifecycle and navigation
 
@@ -189,6 +230,12 @@ const postgresGraph = await readPostgresSchemaDirectory("database/tables");
 Both adapters fail when a relationship cannot be accounted for. Grouping and
 display labels are host callbacks rather than package defaults.
 
+The PostgreSQL directory reader accepts one table definition per `.sql` file.
+It resolves `ALTER TABLE` foreign keys across files, including statements
+that alter a different table from the one declared in their file. Keep source
+files on the server and pass their `metadata.sourcePath` to a host callback if
+the canvas should display the original definition.
+
 The Convex adapter resolves declarations from the schema entry point and its
 direct imports by default. This preserves existing graph and edge identifiers
 when a table module imports an opaque shared validator. Set
@@ -217,11 +264,17 @@ export function adaptMySchema(input: MySchema): SchemaGraph {
 ```
 
 Table, field, and edge `metadata` may contain JSON-safe source provenance such
-as a relative file name and line number. The canvas does not read or display
-source files. A host can use `renderTableDetails` to place a read-only source
-preview inside the existing table editor. `onSelectedTableChange` remains
-available for routes and other host state. Neither API couples the package to a
-router or code editor.
+as a relative file name and line number. With `onLoadTableDefinition`, selecting
+a table offers a **View definition** button in both read-only and writable
+modes. The canvas opens a read-only popup with the source path and exact text
+returned by the host. It shows loading and error states; an absent or empty
+definition is an error. The host resolves table IDs to files and controls access
+to source text. File extensions select syntax highlighting; unknown extensions
+remain plain, escaped text. For a Convex app this may be a TypeScript schema
+module; for a SQL app it may be one `.sql` file per table. The browser package never reads
+the filesystem. `renderTableDetails` remains available for custom content in
+the writable table editor, and `onSelectedTableChange` remains available for
+routes and other host state.
 
 ## JSON persistence
 
@@ -247,6 +300,26 @@ The layout and annotation JSON belong to the host repository. A typical host
 keeps them beside its schema, reviews changes in pull requests, and commits them
 like any other source file. The package does not upload layouts or keep a remote
 copy.
+
+### Annotation migration
+
+The current annotation format stores one `markdown` field for notes and text.
+`parseSchemaAnnotations` accepts older `label` and `text` records in memory.
+For a note, migration turns the old label into a Markdown heading above the
+body. For text, identical label and text values collapse into one value;
+distinct values are both retained. Frames and images still use `label`.
+
+To rewrite a checked-in annotation file, run:
+
+```sh
+schema-canvas migrate-annotations --annotations path/to/schema.annotations.json
+```
+
+The command preserves array or object envelopes, writes atomically, and can be
+run again without further changes. It stops on malformed or unrecognized data
+instead of discarding it. The host chooses when to run this migration because
+the package does not know its annotation file path. The playground migrates its
+browser storage when opened.
 
 ## Styling
 
@@ -291,8 +364,10 @@ pnpm example:dev
 Then open `http://127.0.0.1:4180`. The example opens directly as a writable
 schema canvas. It demonstrates automatic table discovery, direct table
 positioning, contextual table and edge controls, all four annotation kinds,
-image upload, save feedback, and a fictional read-only source preview inside
-the table details panel. Clicking a table shows the file that produced it.
+image upload, save feedback, distance-muted gray arrows, and a fictional
+source definition popup. The example uses a shorter mute threshold so its long
+voyage-to-port links are visible above the cards. Click a
+table, then **View definition**, to inspect the file that produced it.
 Changes stay in that browser's local storage, and **Reset example** restores the
 original fictional data.
 
