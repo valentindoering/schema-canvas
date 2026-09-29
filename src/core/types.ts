@@ -63,7 +63,16 @@ export type SchemaPortSide =
   | "bottom-right";
 
 export type SchemaEdgeRouteMode = "straight" | "smoothstep";
-export type SchemaTableAppearance = "standard" | "quiet" | "highlighted";
+export type SchemaTableAppearance =
+  | "standard"
+  | "quiet"
+  | "highlighted"
+  | "slate"
+  | "blue"
+  | "teal"
+  | "amber"
+  | "rose"
+  | "violet";
 export type SchemaTableFieldDisplay = "all" | "concise";
 export type SchemaEdgeStrokeStyle = "solid" | "dashed" | "dotted";
 
@@ -73,6 +82,7 @@ export type SchemaEdgeLayout = {
   target?: SchemaPortSide;
   route?: SchemaEdgeRouteMode;
   hidden?: boolean;
+  /** Undefined follows the distance rule; false keeps the arrow dark; true keeps it gray. */
   muted?: boolean;
   shift?: {
     direction: "left" | "right" | "up" | "down";
@@ -85,6 +95,7 @@ export type SchemaTableLayout = {
   x: number;
   y: number;
   appearance?: SchemaTableAppearance;
+  markdown?: string;
   fieldDisplay?: SchemaTableFieldDisplay;
   highlightedFields?: string[];
   hideArrows?: boolean;
@@ -101,7 +112,10 @@ export type SchemaAnnotationColor = "slate" | "blue" | "emerald" | "amber";
 export type SchemaAnnotation = {
   id: string;
   kind: SchemaAnnotationKind;
-  label: string;
+  /** Used by frames and images; legacy input for notes and text. */
+  label?: string;
+  markdown?: string;
+  /** Legacy input for notes and text. */
   text?: string;
   asset?: string;
   src?: string;

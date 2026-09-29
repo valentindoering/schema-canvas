@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildCanvasModel,
+  inferEdgePorts,
   visibleFields,
   type TableNodeData,
 } from "../src/react/model.js";
@@ -52,6 +53,36 @@ describe("React canvas model", () => {
     });
   });
 
+  it("uses table bounds for uneven sizes and diagonal placement", () => {
+    const edge = { source: "a", target: "b" };
+    expect(
+      inferEdgePorts(
+        edge,
+        new Map([
+          ["a", { x: 0, y: 0 }],
+          ["b", { x: 550, y: 0 }],
+        ]),
+        { a: { width: 500, height: 1000 }, b: { width: 200, height: 100 } },
+      ),
+    ).toEqual({ source: "right", target: "bottom-left" });
+
+    const positions = new Map([
+      ["a", { x: 0, y: 0 }],
+      ["b", { x: 400, y: 320 }],
+    ]);
+    const dimensions = {
+      a: { width: 280, height: 160 },
+      b: { width: 280, height: 160 },
+    };
+    expect(inferEdgePorts(edge, positions, dimensions)).toEqual({
+      source: "right",
+      target: "top-left",
+    });
+    expect(
+      inferEdgePorts(edge, positions, dimensions, { source: "bottom-right" }),
+    ).toEqual({ source: "bottom-right", target: "left" });
+  });
+
   it("applies hidden, muted, routing, and table-level controls", () => {
     const edge = graph.edges[0]!;
     const base = build({
@@ -91,6 +122,64 @@ describe("React canvas model", () => {
         accounts: { ...layout.accounts!, hideIncomingArrows: true },
       }).edges,
     ).toHaveLength(0);
+  });
+
+  it("keeps a distant arrow dark when its layout explicitly disables muting", () => {
+    const far = {
+      projects: {
+        x: 0,
+        y: 0,
+        foreignKeys: { "accountId->accounts": { muted: false } },
+      },
+      accounts: { x: 2400, y: 0 },
+    };
+    const edge = build(far).edges[0]!;
+    expect(edge.data?.automaticallyMuted).toBe(false);
+    const canvas = buildCanvasModel(graph, far, [], {
+      view: {
+        id: "all",
+        label: "All",
+        tableIds: graph.tables.map((table) => table.id),
+        edgeIds: graph.edges.map((edge) => edge.id),
+      },
+      expandedTableIds: new Set(),
+      writable: true,
+      conciseFieldCount: 8,
+      automaticMuteDistance: 1100,
+      defaultFieldDisplay: "all",
+      showMoreLabel: "More",
+      showLessLabel: "Less",
+      onToggleExpanded: vi.fn(),
+      onResizeAnnotation: vi.fn(),
+    });
+    expect(canvas.edges[0]).toMatchObject({
+      data: { automaticallyMuted: true, muted: false },
+      style: { stroke: "#020617" },
+    });
+  });
+
+  it("gives gray arrows a larger tip than dark arrows", () => {
+    const far = { projects: { x: 0, y: 0 }, accounts: { x: 2400, y: 0 } };
+    const muted = buildCanvasModel(graph, far, [], {
+      view: {
+        id: "all",
+        label: "All",
+        tableIds: graph.tables.map((table) => table.id),
+        edgeIds: graph.edges.map((edge) => edge.id),
+      },
+      expandedTableIds: new Set(),
+      writable: true,
+      conciseFieldCount: 8,
+      automaticMuteDistance: 1100,
+      defaultFieldDisplay: "all",
+      showMoreLabel: "More",
+      showLessLabel: "Less",
+      onToggleExpanded: vi.fn(),
+      onResizeAnnotation: vi.fn(),
+    }).edges[0]!;
+    const dark = build(layout).edges[0]!;
+    expect(muted.markerEnd).toMatchObject({ width: 36, height: 36 });
+    expect(dark.markerEnd).toMatchObject({ width: 20, height: 20 });
   });
 
   it("temporarily expands concise fields and keeps important fields visible", () => {

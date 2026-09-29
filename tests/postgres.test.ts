@@ -94,4 +94,33 @@ describe("PostgreSQL adapter", () => {
       parsePostgresSchema(sources, { includeExternalTargets: false }),
     ).toThrow("unknown tables");
   });
+
+  it("resolves ALTER TABLE references to a table declared in another file", () => {
+    const graph = parsePostgresSchema([
+      {
+        path: "projects.sql",
+        contents: `
+          CREATE TABLE public.projects (id uuid PRIMARY KEY, owner_id uuid);
+          ALTER TABLE public.projects ADD CONSTRAINT projects_owner_fk
+            FOREIGN KEY (owner_id) REFERENCES public.accounts(id);
+        `,
+      },
+      {
+        path: "accounts.sql",
+        contents: `
+          CREATE TABLE public.accounts (id uuid PRIMARY KEY, project_id uuid);
+          ALTER TABLE public.accounts ADD CONSTRAINT accounts_project_fk
+            FOREIGN KEY (project_id) REFERENCES public.projects(id);
+          ALTER TABLE public.projects ADD CONSTRAINT projects_backup_fk
+            FOREIGN KEY (owner_id) REFERENCES public.accounts(id);
+        `,
+      },
+    ]);
+
+    expect(graph.edges).toHaveLength(3);
+    expect(
+      graph.edges.filter((edge) => edge.source === "projects"),
+    ).toHaveLength(2);
+    expect(new Set(graph.edges.map((edge) => edge.id)).size).toBe(3);
+  });
 });

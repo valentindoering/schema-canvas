@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 
 import type { SchemaField, SchemaPortSide } from "../core/index.js";
+import { CanvasMarkdown } from "./markdown.js";
 import {
   handleId,
   visibleFields,
@@ -26,13 +27,23 @@ export function SchemaTableNode({ data, selected }: NodeProps<TableNode>) {
       className={`schema-canvas__table-card schema-canvas__table-card--${data.appearance}${selected ? " schema-canvas__table-card--selected" : ""}`}
       aria-label={data.table.label}
     >
-      <PortHandles writable={data.writable} />
+      <PortHandles
+        writable={data.writable}
+        {...(data.reconnectTargetKind
+          ? { reconnectTargetKind: data.reconnectTargetKind }
+          : {})}
+      />
       <header className="schema-canvas__table-header">
         <strong>{data.table.label}</strong>
         {data.unpositioned ? (
           <span className="schema-canvas__new-table-dot" aria-hidden="true" />
         ) : null}
       </header>
+      {data.markdown ? (
+        <div className="schema-canvas__table-markdown">
+          <CanvasMarkdown source={data.markdown} />
+        </div>
+      ) : null}
       <ul className="schema-canvas__fields">
         {fields.map((field) => (
           <li key={field.name}>
@@ -190,20 +201,34 @@ export function SchemaAnnotationNode({
             ? { fontSize: annotation.fontSize }
             : undefined
         }
-        aria-label={annotation.label}
+        aria-label={
+          annotation.kind === "note" || annotation.kind === "text"
+            ? annotation.markdown?.replace(/^\s*#+\s*/, "").split("\n")[0] ||
+              annotation.kind
+            : (annotation.label ?? "")
+        }
       >
         {annotation.kind === "image" && annotation.src ? (
-          <img src={annotation.src} alt={annotation.label} draggable={false} />
-        ) : null}
-        {annotation.kind === "note" ? (
-          <strong>{annotation.label}</strong>
+          <img
+            src={annotation.src}
+            alt={annotation.label ?? ""}
+            draggable={false}
+          />
         ) : null}
         {annotation.kind === "frame" ? (
           <span className="schema-canvas__annotation-label">
             {annotation.label}
           </span>
         ) : null}
-        {annotation.text ? <p>{annotation.text}</p> : null}
+        {(annotation.kind === "note" || annotation.kind === "text") &&
+        annotation.markdown ? (
+          <CanvasMarkdown source={annotation.markdown} />
+        ) : null}
+        {annotation.kind !== "note" &&
+        annotation.kind !== "text" &&
+        annotation.text ? (
+          <p>{annotation.text}</p>
+        ) : null}
         {annotation.kind === "image" ? (
           <span className="schema-canvas__annotation-caption">
             {annotation.label}
@@ -214,7 +239,13 @@ export function SchemaAnnotationNode({
   );
 }
 
-function PortHandles({ writable }: { writable: boolean }) {
+function PortHandles({
+  writable,
+  reconnectTargetKind,
+}: {
+  writable: boolean;
+  reconnectTargetKind?: "source" | "target";
+}) {
   return (
     <>
       {portSides.map(({ side, position, style }) => (
@@ -224,7 +255,7 @@ function PortHandles({ writable }: { writable: boolean }) {
           type="source"
           position={position}
           style={style}
-          className="schema-canvas__handle"
+          className={`schema-canvas__handle${reconnectTargetKind === "source" ? " schema-canvas__handle--drop-target" : ""}`}
           isConnectable={writable}
         />
       ))}
@@ -235,7 +266,7 @@ function PortHandles({ writable }: { writable: boolean }) {
           type="target"
           position={position}
           style={style}
-          className="schema-canvas__handle"
+          className={`schema-canvas__handle${reconnectTargetKind === "target" ? " schema-canvas__handle--drop-target" : ""}`}
           isConnectable={writable}
         />
       ))}

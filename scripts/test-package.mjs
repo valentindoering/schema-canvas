@@ -7,6 +7,7 @@ const publicModules = [
   "schema-canvas/server/postgres",
   "schema-canvas/server/json-store",
   "schema-canvas/server/layout",
+  "schema-canvas/server/annotations",
 ];
 
 for (const specifier of publicModules) {

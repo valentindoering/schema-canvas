@@ -39,7 +39,11 @@ function Fixture() {
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
   const [writable, setWritable] = useState(false);
-  const [layout, setLayout] = useState<SchemaLayout>(initialLayout);
+  const [layout, setLayout] = useState<SchemaLayout>(() =>
+    new URLSearchParams(location.search).has("farArrow")
+      ? { ...initialLayout, accounts: { x: 2400, y: 0 } }
+      : initialLayout,
+  );
   const [annotations, setAnnotations] = useState<SchemaAnnotation[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   return (
@@ -89,6 +93,15 @@ function Fixture() {
           renderTableDetails={(table) => (
             <p data-testid="table-details">Fixture source: {table.id}</p>
           )}
+          onLoadTableDefinition={async (table) => {
+            if (new URLSearchParams(location.search).has("sourceFailure")) {
+              throw new Error("Source unavailable");
+            }
+            return {
+              path: `schema/${table.id}.sql`,
+              source: `CREATE TABLE ${table.id} (id TEXT PRIMARY KEY);`,
+            };
+          }}
           onSaveLayout={async ({ value }) => {
             setLayout(value);
             return { value, revision: crypto.randomUUID() };

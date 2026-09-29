@@ -26,7 +26,17 @@ const portSides = new Set<SchemaPortSide>([
   "bottom-left",
   "bottom-right",
 ]);
-const appearances = new Set(["standard", "quiet", "highlighted"]);
+const appearances = new Set([
+  "standard",
+  "quiet",
+  "highlighted",
+  "slate",
+  "blue",
+  "teal",
+  "amber",
+  "rose",
+  "violet",
+]);
 const fieldDisplays = new Set(["all", "concise"]);
 const routes = new Set(["straight", "smoothstep"]);
 const styles = new Set(["solid", "dashed", "dotted"]);
@@ -170,6 +180,14 @@ function applyTableSettings(
       SchemaTableLayout["appearance"]
     >;
   }
+  // Additive layout migration: entries saved before table Markdown simply
+  // omit this field. Preserve their shape until the host writes an edit.
+  if (raw.markdown !== undefined) {
+    if (typeof raw.markdown !== "string" || raw.markdown.length > 4000) {
+      throw new Error(`Layout entry "${table.id}" has invalid Markdown.`);
+    }
+    entry.markdown = raw.markdown;
+  }
   if (raw.fieldDisplay !== undefined) {
     if (
       typeof raw.fieldDisplay !== "string" ||
@@ -275,7 +293,7 @@ function parseForeignKeys(
           `Edge layout \"${tableId}.${key}\" ${flag} must be a boolean.`,
         );
       }
-      if (raw[flag] === true) route[flag] = true;
+      if (typeof raw[flag] === "boolean") route[flag] = raw[flag];
     }
     if (raw.style !== undefined) {
       if (typeof raw.style !== "string" || !styles.has(raw.style)) {

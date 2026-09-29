@@ -10,6 +10,7 @@ export default defineConfig({
     "server/postgres/index": "src/server/postgres/index.ts",
     "server/json-store/index": "src/server/json-store/index.ts",
     "server/layout/index": "src/server/layout/index.ts",
+    "server/annotations/index": "src/server/annotations/index.ts",
     cli: "src/cli.ts",
   },
   format: ["esm"],

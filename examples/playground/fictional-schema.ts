@@ -157,6 +157,17 @@ export const initialLayout: SchemaLayout = {
     y: 140,
     fieldDisplay: "concise",
     highlightedFields: ["status"],
+    foreignKeys: {
+      "originPortId->sky_ports": {
+        source: "top-left",
+        target: "top-right",
+      },
+      "destinationPortId->sky_ports": {
+        source: "top",
+        target: "top",
+        route: "smoothstep",
+      },
+    },
   },
   crew_members: { x: 420, y: 500 },
   voyage_crew: { x: 800, y: 500, appearance: "quiet" },
@@ -207,8 +218,8 @@ export function initialAnnotations(imageUrl: string): SchemaAnnotation[] {
     {
       id: "model-note",
       kind: "note",
-      label: "Reading the model",
-      text: "A voyage chooses one airship, two ports, and a captain. Crew assignments and cargo stay separate so each can change without rewriting the voyage.",
+      markdown:
+        "# Reading the model\n\nA voyage chooses one airship, two ports, and a captain. Crew assignments and cargo stay separate so each can change without rewriting the voyage.",
       x: 40,
       y: 650,
       width: 300,
@@ -218,8 +229,7 @@ export function initialAnnotations(imageUrl: string): SchemaAnnotation[] {
     {
       id: "cargo-heading",
       kind: "text",
-      label: "Cargo follows the voyage",
-      text: "Cargo follows the voyage",
+      markdown: "Cargo follows the voyage",
       x: 1160,
       y: 110,
       width: 340,

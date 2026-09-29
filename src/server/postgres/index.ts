@@ -64,6 +64,11 @@ export function parsePostgresSchema(
   const tables: ParsedTable[] = [];
   const edges: SchemaEdge[] = [];
   const comments = new Map<string, string>();
+  const preparedSources: {
+    path: string;
+    contents: string;
+    references: number;
+  }[] = [];
 
   for (const source of sources) {
     const stripped = stripSqlComments(source.contents);
@@ -78,22 +83,39 @@ export function parsePostgresSchema(
         `Parsed ${parsedTables.length} of ${createCount} CREATE TABLE declarations in ${source.path}.`,
       );
     }
-    const sourceEdges = parsedTables.flatMap((table) =>
-      parseForeignKeys(withoutGrants, table),
-    );
-    if (sourceEdges.length !== referencesCount) {
-      throw new Error(
-        `Parsed ${sourceEdges.length} of ${referencesCount} foreign-key references in ${source.path}.`,
-      );
-    }
     tables.push(...parsedTables);
-    edges.push(...sourceEdges);
+    preparedSources.push({
+      path: source.path,
+      contents: withoutGrants,
+      references: referencesCount,
+    });
     collectComments(withoutGrants, comments);
   }
 
   const duplicates = duplicateValues(tables.map((table) => table.id));
   if (duplicates.length) {
     throw new Error(`Duplicate table declarations: ${duplicates.join(", ")}.`);
+  }
+
+  // ALTER TABLE statements may live in a different file from CREATE TABLE.
+  // Resolve them only after every table in the input has been discovered.
+  const edgeCounts = new Map<string, number>();
+  for (const source of preparedSources) {
+    const sourceEdges = tables.flatMap((table) => {
+      const parsed = parseForeignKeys(
+        source.contents,
+        table,
+        edgeCounts.get(table.id) ?? 0,
+      );
+      edgeCounts.set(table.id, (edgeCounts.get(table.id) ?? 0) + parsed.length);
+      return parsed;
+    });
+    if (sourceEdges.length !== source.references) {
+      throw new Error(
+        `Parsed ${sourceEdges.length} of ${source.references} foreign-key references in ${source.path}.`,
+      );
+    }
+    edges.push(...sourceEdges);
   }
 
   const knownIds = new Set(tables.map((table) => table.id));
@@ -239,11 +261,14 @@ function parseColumns(body: string): Column[] {
   });
 }
 
-function parseForeignKeys(source: string, table: ParsedTable): SchemaEdge[] {
+function parseForeignKeys(
+  source: string,
+  table: ParsedTable,
+  sequenceStart = 0,
+): SchemaEdge[] {
   const edges: SchemaEdge[] = [];
-  let sequence = 0;
-  const body = tableBodyFor(source, table);
-  if (body === undefined) return edges;
+  let sequence = sequenceStart;
+  const body = tableBodyFor(source, table) ?? "";
   const tablePattern =
     /(?:(?:ADD\s+)?CONSTRAINT\s+(?:"((?:[^"]|"")*)"|([^"\s]+))\s+)?FOREIGN\s+KEY\s*\(([^)]*)\)\s*REFERENCES\s+((?:"(?:[^"]|"")+"|[a-zA-Z_][\w$]*)(?:\s*\.\s*(?:"(?:[^"]|"")+"|[a-zA-Z_][\w$]*))?)\s*\(([^)]*)\)(?:\s+ON\s+DELETE\s+(NO\s+ACTION|RESTRICT|CASCADE|SET\s+NULL|SET\s+DEFAULT))?/gi;
   let match: RegExpExecArray | null;
