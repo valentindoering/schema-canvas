@@ -367,4 +367,20 @@ describe("core contracts", () => {
       expect.objectContaining({ x: 15, y: 15, width: 125, height: 95 }),
     ]);
   });
+
+  it("omits the legacy text placeholder when a body exists", () => {
+    const [annotation] = parseSchemaAnnotations([
+      {
+        id: "caption",
+        kind: "text",
+        label: "Text",
+        text: "A quiet caption",
+        x: 0,
+        y: 0,
+        width: 300,
+        height: 100,
+      },
+    ]);
+    expect(annotation?.markdown).toBe("A quiet caption");
+  });
 });

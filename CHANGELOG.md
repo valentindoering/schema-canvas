@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+- Ignore the old text editor's generic `Text` label when converting an
+  annotation that already has body content to Markdown. This prevents the
+  placeholder from appearing above migrated text.
+
+Run `schema-canvas migrate-annotations --annotations <file>` on original
+legacy annotation files when upgrading from 0.2.x. Files already converted by
+0.3.0 should be reviewed before removing any visible `Text` line, because
+Markdown may intentionally start with that word.
+
 ## 0.3.0
 
 - Add source-definition inspection with syntax highlighting, Markdown notes,
