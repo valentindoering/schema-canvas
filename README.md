@@ -321,9 +321,21 @@ instead of discarding it. The host chooses when to run this migration because
 the package does not know its annotation file path. The playground migrates its
 browser storage when opened.
 
+## Color themes
+
+The canvas starts in light mode. Its upper-right switch toggles light and dark
+in read-only and writable modes; this changes presentation only, not the saved
+layout or annotations. Use `defaultTheme="dark"` for an uncontrolled dark
+initial state. Hosts that persist a preference can pass `theme="dark"` or
+`theme="light"` and update it through `onThemeChange`. A controlled theme
+without `onThemeChange` hides the built-in switch. Set
+`features={{ themeToggle: false }}` if the host provides its own switch. The
+playground stores its choice in browser storage.
+
 ## Styling
 
-Override variables on `.schema-canvas` or an ancestor:
+Override variables on `.schema-canvas` for light mode and
+`.schema-canvas[data-theme="dark"]` for dark mode:
 
 ```css
 .schema-canvas {
@@ -336,6 +348,10 @@ Override variables on `.schema-canvas` or an ancestor:
   --schema-canvas-accent-soft: #dbeafe;
   --schema-canvas-danger: #b91c1c;
   --schema-canvas-success: #047857;
+  --schema-canvas-edge-strong: #020617;
+  --schema-canvas-edge-optional: #475569;
+  --schema-canvas-edge-muted: #94a3b8;
+  --schema-canvas-edge-muted-optional: #e2e8f0;
   --schema-canvas-radius: 10px;
   --schema-canvas-font: Inter, ui-sans-serif, system-ui, sans-serif;
   --schema-canvas-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
