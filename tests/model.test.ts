@@ -154,7 +154,7 @@ describe("React canvas model", () => {
     });
     expect(canvas.edges[0]).toMatchObject({
       data: { automaticallyMuted: true, muted: false },
-      style: { stroke: "#020617" },
+      style: { stroke: "var(--schema-canvas-edge-strong)" },
     });
   });
 

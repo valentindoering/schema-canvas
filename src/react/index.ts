@@ -20,4 +20,5 @@ export {
   type SchemaCanvasProps,
   type SchemaCanvasHandle,
   type SchemaCanvasSaveState,
+  type SchemaCanvasTheme,
 } from "./types.js";

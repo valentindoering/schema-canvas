@@ -12,6 +12,8 @@ import type {
   SchemaView,
 } from "../core/index.js";
 
+export type SchemaCanvasTheme = "light" | "dark";
+
 export type SchemaCanvasLabels = {
   add: string;
   view: string;
@@ -83,6 +85,8 @@ export type SchemaCanvasLabels = {
   closeEditor: string;
   canvasLabel: string;
   canvasActions: string;
+  switchToDarkTheme: string;
+  switchToLightTheme: string;
   multiSelectHint: string;
   searchTables: string;
   closeSearch: string;
@@ -95,6 +99,7 @@ export type SchemaCanvasLabels = {
 
 export type SchemaCanvasFeatures = {
   canvasToolbar: boolean;
+  themeToggle: boolean;
   navigationControls: boolean;
   minimap: boolean;
   background: boolean;
@@ -115,6 +120,11 @@ export type SchemaCanvasProps = {
   annotations?: SchemaAnnotation[];
   views?: SchemaView[];
   writable: boolean;
+  /** Controlled color theme. Supply onThemeChange to keep the built-in switch active. */
+  theme?: SchemaCanvasTheme;
+  /** Initial theme when theme is uncontrolled; defaults to light. */
+  defaultTheme?: SchemaCanvasTheme;
+  onThemeChange?: (theme: SchemaCanvasTheme) => void;
   initialTableId?: string;
   layoutRevision?: string;
   annotationRevision?: string;
@@ -231,6 +241,8 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   closeEditor: "Close editor",
   canvasLabel: "Database schema canvas",
   canvasActions: "Canvas actions",
+  switchToDarkTheme: "Switch to dark mode",
+  switchToLightTheme: "Switch to light mode",
   multiSelectHint: "Click to select more",
   searchTables: "Search tables",
   closeSearch: "Close search",
@@ -243,6 +255,7 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
 
 export const defaultSchemaCanvasFeatures: SchemaCanvasFeatures = {
   canvasToolbar: false,
+  themeToggle: true,
   navigationControls: true,
   minimap: true,
   background: true,

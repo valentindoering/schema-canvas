@@ -9,6 +9,7 @@ import type {
 import {
   SchemaCanvas,
   type SchemaCanvasHandle,
+  type SchemaCanvasTheme,
 } from "../../src/react/index.js";
 import "../../src/styles.css";
 import { graph, layout as initialLayout } from "../fixtures.js";
@@ -39,6 +40,7 @@ function Fixture() {
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
   const [writable, setWritable] = useState(false);
+  const [theme, setTheme] = useState<SchemaCanvasTheme>("light");
   const [layout, setLayout] = useState<SchemaLayout>(() =>
     new URLSearchParams(location.search).has("farArrow")
       ? { ...initialLayout, accounts: { x: 2400, y: 0 } }
@@ -89,6 +91,12 @@ function Fixture() {
           layout={layout}
           annotations={annotations}
           writable={writable}
+          {...(new URLSearchParams(location.search).has("defaultDarkTheme")
+            ? { defaultTheme: "dark" as const }
+            : {})}
+          {...(new URLSearchParams(location.search).has("controlledTheme")
+            ? { theme, onThemeChange: setTheme }
+            : {})}
           onSelectedTableChange={setSelectedTable}
           renderTableDetails={(table) => (
             <p data-testid="table-details">Fixture source: {table.id}</p>
