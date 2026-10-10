@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Render Markdown bullets and numbers visibly in note and text annotations.
+- Add a manual light and dark theme switch.
+
+Existing layout and annotation files need no migration.
+
 ## 0.3.1
 
 - Ignore the old text editor's generic `Text` label when converting an
