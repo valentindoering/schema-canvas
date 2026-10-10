@@ -7,7 +7,7 @@ import {
   type SchemaAnnotation,
   type SchemaLayout,
 } from "../../src/core/index.js";
-import { SchemaCanvas } from "../../src/react/index.js";
+import { SchemaCanvas, type SchemaCanvasTheme } from "../../src/react/index.js";
 import "../../src/styles.css";
 import "./example.css";
 import {
@@ -22,9 +22,13 @@ import routeCardUrl from "./route-card.svg?url";
 const layoutKey = "schema-canvas-example-layout";
 const annotationsKey = "schema-canvas-example-annotations";
 const assetsKey = "schema-canvas-example-assets";
+const themeKey = "schema-canvas-example-theme";
 
 function Playground() {
   const [canvasKey, setCanvasKey] = useState(0);
+  const [theme, setTheme] = useState<SchemaCanvasTheme>(() =>
+    localStorage.getItem(themeKey) === "dark" ? "dark" : "light",
+  );
   const [layout, setLayout] = useState<SchemaLayout>(() =>
     readStored(layoutKey, initialLayout),
   );
@@ -68,7 +72,7 @@ function Playground() {
   const canvasStyle = useMemo(() => ({ height: "100%" }), []);
 
   return (
-    <main className="playground">
+    <main className={`playground playground--${theme}`}>
       <h1 className="playground__title">Schema Canvas playground</h1>
       <button className="playground__reset" type="button" onClick={reset}>
         Reset example
@@ -81,6 +85,11 @@ function Playground() {
           annotations={annotations}
           views={views}
           writable
+          theme={theme}
+          onThemeChange={(nextTheme) => {
+            setTheme(nextTheme);
+            localStorage.setItem(themeKey, nextTheme);
+          }}
           style={canvasStyle}
           conciseFieldCount={5}
           automaticMuteDistance={650}

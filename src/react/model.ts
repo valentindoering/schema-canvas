@@ -166,11 +166,11 @@ export function buildCanvasModel(
       const style = {
         stroke: muted
           ? edge.optional
-            ? "#e2e8f0"
-            : "#94a3b8"
+            ? "var(--schema-canvas-edge-muted-optional)"
+            : "var(--schema-canvas-edge-muted)"
           : edge.optional
-            ? "#475569"
-            : "#020617",
+            ? "var(--schema-canvas-edge-optional)"
+            : "var(--schema-canvas-edge-strong)",
         strokeWidth: selected ? (muted ? 2 : 3) : muted ? 1.3 : 2,
         ...((route?.style ?? (edge.optional ? "dashed" : "solid")) === "dashed"
           ? { strokeDasharray: "8 5" }

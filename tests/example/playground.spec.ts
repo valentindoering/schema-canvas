@@ -57,6 +57,17 @@ test("shows the fictional schema and its editable features", async ({
   await expect(page.getByRole("button", { name: "Add image" })).toBeVisible();
 });
 
+test("keeps the manual dark mode choice across reloads", async ({ page }) => {
+  const canvas = page.locator(".schema-canvas");
+  await expect(canvas).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await expect(canvas).toHaveAttribute("data-theme", "dark");
+  await page.reload();
+  await expect(canvas).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(canvas).toHaveAttribute("data-theme", "light");
+});
+
 test("shows distance-muted gray arrows alongside dark arrows", async ({
   page,
 }) => {

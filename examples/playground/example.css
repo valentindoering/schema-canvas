@@ -33,6 +33,17 @@ button {
   height: 100%;
 }
 
+.playground--dark {
+  color: #e7edf6;
+  background: #0b1220;
+}
+
+.playground--dark .playground__reset {
+  border-color: #40536b;
+  color: #e7edf6;
+  background: #142033;
+}
+
 .playground__reset {
   position: absolute;
   z-index: 30;

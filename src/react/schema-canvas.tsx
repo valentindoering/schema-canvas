@@ -55,6 +55,7 @@ import {
   type SchemaCanvasLabels,
   type SchemaCanvasProps,
   type SchemaCanvasHandle,
+  type SchemaCanvasTheme,
 } from "./types.js";
 
 const nodeTypes = {
@@ -87,6 +88,9 @@ function SchemaCanvasInner({
   annotations: annotationsProp = EMPTY_ANNOTATIONS,
   views: viewsProp,
   writable,
+  theme: controlledTheme,
+  defaultTheme = "light",
+  onThemeChange,
   initialTableId,
   layoutRevision,
   annotationRevision,
@@ -114,6 +118,14 @@ function SchemaCanvasInner({
     () => ({ ...defaultSchemaCanvasFeatures, ...featureOverrides }),
     [featureOverrides],
   );
+  const [uncontrolledTheme, setUncontrolledTheme] =
+    useState<SchemaCanvasTheme>(defaultTheme);
+  const theme = controlledTheme ?? uncontrolledTheme;
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    if (controlledTheme === undefined) setUncontrolledTheme(nextTheme);
+    onThemeChange?.(nextTheme);
+  };
   const views = useMemo(
     () => (viewsProp?.length ? viewsProp : [allSchemaView(graph)]),
     [graph, viewsProp],
@@ -978,10 +990,32 @@ function SchemaCanvasInner({
         .filter(Boolean)
         .join(" ")}
       style={style}
+      data-theme={theme}
       aria-label={labels.canvasLabel}
       tabIndex={0}
       onKeyDown={onCanvasKeyDown}
     >
+      {features.themeToggle &&
+      (controlledTheme === undefined || onThemeChange) ? (
+        <button
+          className="schema-canvas__theme-toggle"
+          type="button"
+          aria-label={
+            theme === "light"
+              ? labels.switchToDarkTheme
+              : labels.switchToLightTheme
+          }
+          title={
+            theme === "light"
+              ? labels.switchToDarkTheme
+              : labels.switchToLightTheme
+          }
+          aria-pressed={theme === "dark"}
+          onClick={toggleTheme}
+        >
+          <ThemeIcon theme={theme} />
+        </button>
+      ) : null}
       {features.canvasToolbar ? (
         <div className="schema-canvas__toolbar">
           {views.length > 1 ? (
@@ -1170,6 +1204,7 @@ function SchemaCanvasInner({
       ) : null}
 
       <ReactFlow<CanvasNode, CanvasEdge>
+        colorMode={theme}
         className={
           features.background ? "schema-canvas__background" : undefined
         }
@@ -2043,6 +2078,21 @@ function ChoiceField<T extends string>({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+function ThemeIcon({ theme }: { theme: SchemaCanvasTheme }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      {theme === "light" ? (
+        <path d="M20 15.4A8.5 8.5 0 0 1 8.6 4a8.5 8.5 0 1 0 11.4 11.4Z" />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+        </>
+      )}
+    </svg>
   );
 }
 
