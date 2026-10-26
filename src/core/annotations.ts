@@ -82,6 +82,7 @@ export function parseSchemaAnnotations(
         item.markdown,
         `Annotation \"${id}\" Markdown must be a string.`,
         5000,
+        { preserveWhitespace: true },
       );
       const legacyLabel = optionalString(
         item.label,

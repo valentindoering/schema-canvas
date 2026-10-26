@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- Preserve Markdown whitespace in note and text annotations so Enter and
+  Shift+Enter can add lines at the end of the editor. Keep indentation,
+  trailing spaces and blank lines through saves.
+
+Existing layout and annotation files need no migration.
+
 ## 0.3.2
 
 - Render Markdown bullets and numbers visibly in note and text annotations.

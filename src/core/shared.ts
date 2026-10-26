@@ -29,10 +29,14 @@ export function optionalString(
   value: unknown,
   message: string,
   maxLength: number,
+  options: { preserveWhitespace?: boolean } = {},
 ): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") throw new Error(message);
-  const normalized = value.trim().slice(0, maxLength);
+  const normalized = (options.preserveWhitespace ? value : value.trim()).slice(
+    0,
+    maxLength,
+  );
   return normalized || undefined;
 }
 

@@ -307,6 +307,20 @@ describe("core contracts", () => {
     });
   });
 
+  it.each(["note", "text"])(
+    "preserves %s Markdown whitespace through parsing and serialization",
+    (kind) => {
+      for (const markdown of ["\n", "  ", "\n\n", "  indented\n\nnext  \n"]) {
+        const parsed = parseSchemaAnnotations([
+          { id: "draft", kind, markdown, x: 0, y: 0, width: 300, height: 200 },
+        ]);
+        expect(parsed[0]?.markdown).toBe(markdown);
+        const saved = serializeSchemaAnnotations(parsed);
+        expect(parseSchemaAnnotations(saved)[0]?.markdown).toBe(markdown);
+      }
+    },
+  );
+
   it("migrates text labels without repeating identical text", () => {
     const parsed = parseSchemaAnnotations([
       {

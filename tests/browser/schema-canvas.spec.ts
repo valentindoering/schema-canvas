@@ -312,6 +312,51 @@ test("renders Markdown in notes and below table titles, with a color palette", a
   await expect(editor.getByRole("textbox", { name: "Label" })).toHaveCount(0);
 });
 
+for (const kind of ["note", "text", "table"] as const) {
+  test(`${kind} Markdown keeps newlines and spaces at the end while editing and saving`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByTestId("mode").click();
+    if (kind === "table") {
+      await page.getByText("Projects", { exact: true }).click();
+    } else {
+      await clickAdd(page, kind === "note" ? "Add note" : "Add text");
+    }
+    const markdown = page.getByRole("textbox", {
+      name: kind === "table" ? "Table Markdown" : "Markdown",
+      exact: true,
+    });
+    await markdown.fill("");
+    await markdown.press("Enter");
+    await expect(markdown).toHaveValue("\n");
+    await markdown.press("Shift+Enter");
+    await expect(markdown).toHaveValue("\n\n");
+    await markdown.pressSequentially("  First line");
+    await markdown.press("Enter");
+    await markdown.press("Shift+Enter");
+    await markdown.pressSequentially("Second line  ");
+    await markdown.press("Enter");
+    const expected = "\n\n  First line\n\nSecond line  \n";
+    await expect(markdown).toHaveValue(expected);
+    await markdown.blur();
+    const saved = page.getByTestId(kind === "table" ? "layout" : "annotations");
+    await expect
+      .poll(async () => {
+        const value = JSON.parse((await saved.textContent())!);
+        return kind === "table" ? value.projects.markdown : value[0]?.markdown;
+      })
+      .toBe(expected);
+    await page.getByRole("button", { name: "Close editor" }).click();
+    if (kind === "table") {
+      await page.getByText("Projects", { exact: true }).click();
+    } else {
+      await page.locator(`.schema-canvas__annotation-card--${kind}`).click();
+    }
+    await expect(markdown).toHaveValue(expected);
+  });
+}
+
 test("canvas shortcuts duplicate, copy, paste, undo and redo annotations", async ({
   page,
 }) => {
