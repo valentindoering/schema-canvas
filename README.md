@@ -124,6 +124,16 @@ emphasis, lists, quotes, code, and links. Raw
 HTML and embedded images are not rendered. A writable table can also store
 Markdown in its optional `layout[tableId].markdown` field; it appears between
 the title and attributes. Existing layouts without that field remain valid.
+These fields share a Tiptap editor with headings, emphasis, lists, code, links,
+local undo/redo, and an expanded writing view. The editor loads on demand when
+a writable Markdown field opens; read-only canvases do not load Tiptap.
+The Source switch edits the original Markdown directly. Opening an editor,
+switching modes, or expanding it does not rewrite or save the content.
+Rich-text edits serialize back to Markdown and can normalize its syntax and
+spacing. Content outside the configured rich-text schema (such as raw HTML,
+embedded images, and tables) stays in Source mode to preserve it. If the editor
+cannot load, an editable source field remains available with an error message.
+No persisted-format migration is needed.
 The appearance editor uses icon-only swatches for three neutral presets and
 six coordinated colors. Hosts may override their CSS colors.
 
@@ -346,6 +356,7 @@ Override variables on `.schema-canvas` for light mode and
   --schema-canvas-text-muted: #64748b;
   --schema-canvas-accent: #2563eb;
   --schema-canvas-accent-soft: #dbeafe;
+  --schema-canvas-review-accent: #2563eb;
   --schema-canvas-danger: #b91c1c;
   --schema-canvas-success: #047857;
   --schema-canvas-edge-strong: #020617;
@@ -387,7 +398,250 @@ table, then **View definition**, to inspect the file that produced it.
 Changes stay in that browser's local storage, and **Reset example** restores the
 original fictional data.
 
+Select **Large system** or add `?example=large` for a fictional 96-table system
+with eight separated regions, cross-region relationships, and architectural
+notes. It keeps its saved state separate from the small example. The
+[agent reading exercise](examples/playground/architecture-reading.md) records
+which MCP queries reveal cancellation, ownership, and asynchronous boundaries.
+
 The example source lives in [`examples/playground`](examples/playground). It is
 kept out of the npm tarball and can later be deployed as the package website
 without adding application routes, authentication, or a real database to the
 library itself.
+
+## AI context and human-reviewed suggestions
+
+Agents may read canvas documentation and submit proposals. They must not edit
+its authoritative JSON, layout, or annotation files directly. A proposal is a
+pending suggestion; it does not enter the canvas autosave queue. The host's
+human-only review endpoint applies it after the person opens and confirms the
+exact changes in the canvas.
+
+### Read context by names and relationships
+
+```ts
+import {
+  getCanvasContext,
+  canvasContextMarkdown,
+  canvasContextSvg,
+} from "schema-canvas/core";
+
+const document = { graph, layout, annotations, views };
+const context = await getCanvasContext(document, {
+  table: "projects", // exact id or unambiguous label
+  hops: 1,
+  includeImage: true,
+});
+const text = canvasContextMarkdown(context);
+const diagram = canvasContextSvg(context);
+```
+
+Queries can select a `table` plus `hops` (0–3), a named `view`, a named `frame`,
+`tableIds`/`annotationIds`, or `bounds`. An empty query reads the whole document.
+Unknown and ambiguous names fail explicitly. The default limits are 100 tables and 100 annotations;
+`maxTables` and `maxAnnotations` can each raise the limit to 500. Truncated responses list omitted table ids, and
+relationships crossing the requested boundary remain visible. `findCanvasTables`
+resolves partial names before a neighborhood query.
+
+The versioned response includes complete field definitions and Markdown,
+positions, appearance, frame containment, nearby notes, and relative placement.
+Spatial relationships are observations with geometry provenance, not assertions
+of ownership or architectural intent. Offline table bounds are explicitly
+estimated; pass measured `geometry` as the third argument to use actual bounds.
+Hidden edges are included with the reason they are hidden. Gray edges distinguish
+explicit muting from automatic distance muting. Resolved image URLs are omitted
+from context. Schematics represent embedded images by their labels, so generating
+context does not fetch arbitrary image URLs.
+
+A table query includes distant notes in its containing frames, while keeping
+notes inside sibling nested frames separate unless they are physically nearby.
+Readable responses distinguish declared table groups from geometric containment.
+Whole-schema views include global notes. A table budget retains the requested
+root before its neighbors.
+
+`revision` hashes the canonical complete document; proposal submissions must use
+that revision. `snapshotId` also identifies the query and resolved geometry.
+Text, JSON, SVG, and optional MCP PNG use that same snapshot. `draft: true` means
+a browser export includes unsaved edits; save those edits before proposing
+against its revision. Hashing requires Web Crypto (HTTPS or localhost in browsers).
+
+`SchemaCanvasHandle.getContext(query)` reads the current canvas with measured
+bounds and never saves. The built-in **AI context** action exports the current
+view or selection as Markdown, JSON, and an optional SVG schematic. Disable the
+action with `features={{ contextExport: false }}`.
+
+### Persist proposals separately from live documentation
+
+```ts
+import { createCanvasReviewService } from "schema-canvas/core";
+import {
+  initializeCanvasReviewFile,
+  createFileCanvasReviewStore,
+} from "schema-canvas/server/review-store";
+
+// Run once, explicitly. An existing file is never overwritten.
+await initializeCanvasReviewFile("./data/canvas-review.json", document);
+const store = createFileCanvasReviewStore({
+  filePath: "./data/canvas-review.json",
+});
+
+const service = createCanvasReviewService({
+  store,
+  authorizeReview: async (request: HumanRequest) => {
+    // Implement these checks in the host using server-owned session context.
+    const person = await authenticateHuman(request);
+    if (!person?.canReviewCanvas) throw new Error("Review permission required");
+    return { reviewerId: person.id };
+  },
+});
+
+// Bind this identity from the authenticated agent connection, not tool arguments.
+const agent = service.agent("documentation-assistant");
+const context = await agent.getContext({ table: "projects", hops: 1 });
+const proposal = await agent.propose({
+  baseRevision: context.revision,
+  title: "Explain the project boundary",
+  reason: "Document why projects reference accounts.",
+  operations: [
+    {
+      op: "set_table_markdown",
+      tableId: "projects",
+      markdown: "## Ownership\n\nProjects belong to accounts.",
+    },
+  ],
+});
+// proposal.status === "pending"; live documentation has not changed.
+```
+
+The state file is a new, explicit `version: 1` envelope containing `document` and
+`proposals`. Existing layout and annotation files are not migrated or rewritten.
+The host must use this envelope as its authority, or implement `CanvasReviewStore`
+with an equivalent database transaction over the live document and proposal
+ledger. Do not keep independent writers updating separate copies of the same
+live document. `service.saveDocument(next, expectedRevision, humanContext)` is
+the authenticated, revision-checked path for ordinary human edits.
+
+The file store serializes writes within the process and uses an exclusive lock
+file across processes. Accepted changes and their audit record are committed in
+one atomic rename. It uses mode `0600`; OS permissions and directory ownership
+still belong to the host. An active lock fails explicitly. After a crashed
+writer, verify that it is stopped before removing its `.lock` file. Malformed
+state and unsupported versions fail; no data is silently reset. The host can
+archive decided proposals before the 1000-entry ledger limit is reached.
+
+Proposal operations are restricted to table documentation, placement and
+appearance; arrow presentation; and adding/updating/deleting annotations.
+Agents cannot alter schema declarations or arbitrary JSON paths. Asset URLs and
+new image annotations are excluded from proposal operations. Each proposal
+stores its original baseline for a durable before/after review. Treat the ledger
+as private documentation too.
+
+### Connect the human review surface
+
+```tsx
+<SchemaCanvas
+  graph={snapshot.document.graph}
+  layout={snapshot.document.layout}
+  annotations={snapshot.document.annotations}
+  writable={canEdit}
+  proposalReview={{
+    revision: snapshot.revision,
+    proposals,
+    onOpenReview: (id) => humanApi.openReview(id),
+    onAccept: (decision) => humanApi.accept(decision),
+    onReject: (decision) => humanApi.reject(decision),
+  }}
+/>
+```
+
+The host loads `snapshot` with `service.readDocument()` and `proposals` with
+`service.listProposals()`. It binds `humanApi` to authenticated host routes:
+`service.openReview(id, humanContext)`, `service.accept(decision, humanContext)`,
+and `service.reject(decision, humanContext)`. Refresh the controlled document,
+revision, and proposal props after decisions or external edits. These routes
+must authenticate and authorize the human independently of agent credentials.
+Do not accept a caller-supplied `reviewerId` as authentication.
+
+The suggestion panel opens in the top-right corner whenever proposals are
+pending. Each card displays a unified red/green documentation diff, compact
+property changes, and **Accept** / **Decline** actions. The panel can be collapsed
+without discarding suggestions. **Go to** focuses the affected table, arrow
+endpoints, or annotation on the live canvas. On narrow canvases this also
+collapses the panel so the target is visible. Optional previews show only the
+affected object, excluding surrounding frames and unrelated tables. Arrow
+endpoints are arranged together in previews so distant tables remain legible.
+Long unchanged sections of documentation fold away; changed lines remain visible.
+
+Displaying a card calls `onOpenReview` before enabling its decision actions.
+Acceptance remains an explicit human click. Previews and navigation never change
+canvas state or call save callbacks. Accept is disabled while local edits are
+unsaved and when the proposal is stale. Stale proposals can still be declined.
+Refresh the controlled document, revision, and proposal props after every
+decision. The panel refreshes remaining cards automatically. Suggestions from
+one revision can be accepted individually when their affected objects remain
+unchanged. Conflicting suggestions must be resubmitted.
+
+The service compares each affected table layout or annotation with its stored
+baseline inside the decision transaction. Arrow changes also check their source
+table layout. It applies explicit operations to the latest document, preserving
+unrelated edits. Any schema-graph or view change invalidates pending suggestions.
+Proposal submission and whole-document saves still require the exact current
+revision. This uses the existing stored baseline; no persisted format changes.
+
+The server issues a short-lived, reviewer-bound token when opening a review.
+Acceptance verifies that token, the exact proposal digest, pending status, and
+the affected objects against their baseline inside the same transaction. Repeated approval
+cannot apply twice. Decisions retain reviewer, timestamp, and resulting revision;
+review tokens and baseline documents are never returned through agent tools.
+
+This establishes a permission boundary only if the host protects it. An agent
+with unrestricted write access to the authority file can bypass any API.
+An agent controlling the same authenticated browser session could also click
+its buttons. For stronger separation, keep authority storage outside the agent's
+writable workspace and require an independent user-presence check (for example,
+a host-verified WebAuthn assertion) on the approval endpoint. No UI can prove that
+someone actually read a change. The package does not claim otherwise.
+
+### Expose MCP tools
+
+```ts
+import { createCanvasAgentServer } from "schema-canvas/server/agent";
+
+const server = createCanvasAgentServer(agent, {
+  reviewUrl: (id) => `https://example.com/canvas?proposal=${id}`,
+});
+// Connect an official MCP SDK transport in the host. Keep HTTP routing,
+// authentication, authorization, and canvas selection in the host.
+```
+
+The server uses the official MCP TypeScript SDK v2. The PNG renderer is imported
+only when `includeImage: true`; neither the MCP SDK nor the renderer enters the
+browser import graph. The tool surface contains exactly:
+
+- `find_canvas_tables({ query, limit? })`
+- `get_canvas_context({ table?, hops?, view?, frame?, tableIds?, annotationIds?, bounds?, maxTables?, maxAnnotations?, includeImage? })`
+- `propose_canvas_change({ baseRevision, title, reason, operations })`
+- `get_canvas_proposal({ proposalId })`
+
+There is no approval, rejection, direct-save, or filesystem-write tool. Tool
+annotations describe side effects but are not permission enforcement.
+`propose_canvas_change` is correctly marked as a write to the proposal ledger.
+The host must authorize which canvas each agent can access before constructing
+its capability object.
+
+A local stdio server is also available:
+
+```sh
+schema-canvas init-review --document ./data/document.json --state ./data/canvas-review.json
+schema-canvas agent --state ./data/canvas-review.json --actor documentation-assistant --review-url https://example.com/canvas
+```
+
+The initial document JSON contains `graph`, `layout`, `annotations`, and optional
+`views`. Initialization is explicit and never replaces an existing file. The
+stdio process cannot approve changes. A separate authenticated human host uses
+the same store to review them. Restrict the agent process's filesystem access;
+stdio does not make a same-user writable file tamper-proof.
+
+The playground's **Try an AI suggestion** button demonstrates submission,
+persistence, preview, acceptance, and rejection using browser-local storage.
+It simulates an agent; it is not a production authentication boundary.

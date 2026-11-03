@@ -22,3 +22,9 @@ export {
   type SchemaCanvasSaveState,
   type SchemaCanvasTheme,
 } from "./types.js";
+
+export {
+  CanvasProposalInbox,
+  type CanvasProposalReviewControls,
+  type CanvasProposalLocation,
+} from "./canvas-proposal-inbox.js";

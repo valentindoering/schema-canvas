@@ -25,6 +25,10 @@ import {
 import {
   allSchemaView,
   createSaveQueue,
+  getCanvasContext,
+  type CanvasContext,
+  type CanvasContextQuery,
+  type CanvasGeometry,
   getSchemaEdgeLayout,
   parseSchemaAnnotations,
   setSchemaEdgeLayout,
@@ -47,6 +51,12 @@ import {
   type CanvasNode,
 } from "./model.js";
 import { SchemaAnnotationNode, SchemaTableNode } from "./nodes.js";
+import { MarkdownField } from "./markdown-field.js";
+import { CanvasContextPanel } from "./canvas-context-panel.js";
+import {
+  CanvasProposalInbox,
+  type CanvasProposalLocation,
+} from "./canvas-proposal-inbox.js";
 import { HighlightedSource } from "./source-highlight.js";
 import { CanvasEditHistory, type CanvasEditSnapshot } from "./edit-history.js";
 import {
@@ -107,6 +117,7 @@ function SchemaCanvasInner({
   onSelectedTableChange,
   renderTableDetails,
   onLoadTableDefinition,
+  proposalReview,
   className,
   style,
 }: SchemaCanvasProps) {
@@ -165,6 +176,12 @@ function SchemaCanvasInner({
   const [selectedTableIds, setSelectedTableIds] = useState<Set<string>>(
     () => new Set(initialTableId ? [initialTableId] : []),
   );
+  const [contextQuery, setContextQuery] = useState<CanvasContextQuery | null>(
+    null,
+  );
+  const contextReader = useRef<
+    (query?: CanvasContextQuery) => Promise<CanvasContext>
+  >(() => Promise.reject(new Error("The canvas is not initialized.")));
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<{
     edgeId: string;
@@ -181,11 +198,13 @@ function SchemaCanvasInner({
   const [showSelectionHint, setShowSelectionHint] = useState(false);
   const selectionHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const addMenu = useRef<HTMLDivElement>(null);
+  const addToggle = useRef<HTMLButtonElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const [searchFocusTableId, setSearchFocusTableId] = useState<string | null>(
-    null,
-  );
+  const [focusTableId, setFocusTableId] = useState<string | null>(null);
+  const [proposalLocation, setProposalLocation] =
+    useState<CanvasProposalLocation | null>(null);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const saveStateListener = useRef(onSaveStateChange);
   useLayoutEffect(() => {
@@ -231,6 +250,7 @@ function SchemaCanvasInner({
     };
     return {
       getSaveState,
+      getContext: (query) => contextReader.current(query),
       flushSaves: () => settle(true),
       whenSavesIdle: () => settle(false),
     };
@@ -260,6 +280,20 @@ function SchemaCanvasInner({
   );
   const focused = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!addOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !addMenu.current?.contains(event.target)
+      ) {
+        setAddOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [addOpen]);
 
   useEffect(
     () => () => {
@@ -394,6 +428,48 @@ function SchemaCanvasInner({
     ],
   );
 
+  const readContext = useCallback(
+    (query: CanvasContextQuery = {}) => {
+      const geometry: CanvasGeometry = {};
+      for (const node of model.nodes) {
+        if (node.type !== "schemaTable") continue;
+        const dimensions = nodeDimensions[node.id];
+        if (dimensions) geometry[node.id] = { ...node.position, ...dimensions };
+      }
+      return getCanvasContext(
+        {
+          graph,
+          layout,
+          annotations: annotations.map(({ src: _src, ...annotation }) => {
+            const original = annotationsProp.find(
+              (a) => a.id === annotation.id,
+            );
+            return original?.src
+              ? { ...annotation, src: original.src }
+              : annotation;
+          }),
+          ...(viewsProp === undefined ? {} : { views: viewsProp }),
+        },
+        query,
+        { geometry, automaticMuteDistance, draft: handle.getSaveState().dirty },
+      );
+    },
+    [
+      graph,
+      handle,
+      layout,
+      annotations,
+      annotationsProp,
+      viewsProp,
+      model.nodes,
+      nodeDimensions,
+      automaticMuteDistance,
+    ],
+  );
+  useLayoutEffect(() => {
+    contextReader.current = readContext;
+  }, [readContext]);
+
   useEffect(() => {
     if (focused.current || !initialTableId || !reactFlow) return;
     if (!model.nodes.some((node) => node.id === initialTableId)) return;
@@ -408,14 +484,47 @@ function SchemaCanvasInner({
   }, [fitView, initialTableId, model.nodes, reactFlow]);
 
   useEffect(() => {
-    if (!searchFocusTableId || !reactFlow) return;
-    if (!model.nodes.some((node) => node.id === searchFocusTableId)) return;
-    const tableId = searchFocusTableId;
-    setSearchFocusTableId(null);
+    if (!focusTableId || !reactFlow) return;
+    if (!model.nodes.some((node) => node.id === focusTableId)) return;
+    const tableId = focusTableId;
+    setFocusTableId(null);
     requestAnimationFrame(() => {
       void fitView({ nodes: [{ id: tableId }], duration: 350, maxZoom: 1.2 });
     });
-  }, [fitView, model.nodes, reactFlow, searchFocusTableId]);
+  }, [fitView, model.nodes, reactFlow, focusTableId]);
+
+  useEffect(() => {
+    if (!proposalLocation || !reactFlow) return;
+    const ids = [
+      ...proposalLocation.tableIds,
+      ...proposalLocation.annotationIds.map((id) => `annotation:${id}`),
+    ];
+    const nodes = model.nodes.filter((node) => ids.includes(node.id));
+    if (!nodes.length && !proposalLocation.bounds) return;
+    setProposalLocation(null);
+    requestAnimationFrame(() => {
+      if (nodes.length) {
+        const root = canvasRoot.current;
+        const inbox = root?.querySelector(
+          ".schema-canvas__proposal-inbox:not(.schema-canvas__proposal-inbox--collapsed)",
+        );
+        const right =
+          root && root.clientWidth > 760 && inbox
+            ? (`${inbox.clientWidth + 40}px` as const)
+            : ("24px" as const);
+        void fitView({
+          nodes: nodes.map((node) => ({ id: node.id })),
+          duration: 350,
+          maxZoom: 1.2,
+          padding: { top: "110px", right, bottom: "60px", left: "24px" },
+        });
+      } else if (proposalLocation.bounds)
+        void reactFlow.fitBounds(proposalLocation.bounds, {
+          duration: 350,
+          padding: 0.4,
+        });
+    });
+  }, [proposalLocation, model.nodes, reactFlow, fitView]);
 
   const updateLayout = useCallback(
     (
@@ -964,7 +1073,7 @@ function SchemaCanvasInner({
             table.id.toLocaleLowerCase().includes(debouncedSearchQuery),
         )
       : [];
-  const selectSearchResult = (tableId: string) => {
+  const selectTable = (tableId: string) => {
     const matchingView =
       (selectedView.tableIds.includes(tableId) ? selectedView : undefined) ??
       views.find((view) => view.tableIds.includes(tableId));
@@ -972,7 +1081,7 @@ function SchemaCanvasInner({
     setSelectedNodeId(tableId);
     setSelectedTableIds(new Set([tableId]));
     setSelectedEdgeId(null);
-    setSearchFocusTableId(tableId);
+    setFocusTableId(tableId);
     setSearchOpen(false);
     setSearchQuery("");
     onSelectedTableChange?.(tableId);
@@ -1115,8 +1224,7 @@ function SchemaCanvasInner({
                         .toLocaleLowerCase()
                         .includes(normalizedSearchQuery),
                   );
-                  if (normalizedSearchQuery && first)
-                    selectSearchResult(first.id);
+                  if (normalizedSearchQuery && first) selectTable(first.id);
                 }
               }}
             />
@@ -1138,6 +1246,27 @@ function SchemaCanvasInner({
               </svg>
             )}
           </button>
+          {features.contextExport ? (
+            <button
+              type="button"
+              className="schema-canvas__context-button"
+              onClick={() => {
+                setContextQuery(
+                  selectedTableIds.size
+                    ? { tableIds: [...selectedTableIds] }
+                    : selectedNodeId?.startsWith("annotation:")
+                      ? {
+                          annotationIds: [
+                            selectedNodeId.slice("annotation:".length),
+                          ],
+                        }
+                      : { view: selectedView.id },
+                );
+              }}
+            >
+              {labels.aiContext}
+            </button>
+          ) : null}
           {writable ? (
             <>
               <button
@@ -1170,7 +1299,7 @@ function SchemaCanvasInner({
                 <button
                   key={table.id}
                   type="button"
-                  onClick={() => selectSearchResult(table.id)}
+                  onClick={() => selectTable(table.id)}
                 >
                   <span>{table.label}</span>
                   {table.id !== table.label ? <small>{table.id}</small> : null}
@@ -1271,6 +1400,42 @@ function SchemaCanvasInner({
         ) : null}
       </ReactFlow>
 
+      {contextQuery ? (
+        <CanvasContextPanel
+          readContext={readContext}
+          query={contextQuery}
+          labels={labels}
+          onClose={() => setContextQuery(null)}
+        />
+      ) : null}
+      {proposalReview ? (
+        <CanvasProposalInbox
+          controls={proposalReview}
+          labels={labels}
+          hasUnsavedChanges={handle.getSaveState().dirty}
+          onNavigate={(location) => {
+            const matchingView =
+              views.find(
+                (view) =>
+                  location.tableIds.length &&
+                  location.tableIds.every((id) => view.tableIds.includes(id)),
+              ) ??
+              views.find((view) =>
+                location.tableIds.some((id) => view.tableIds.includes(id)),
+              );
+            if (matchingView) setSelectedViewId(matchingView.id);
+            setSelectedNodeId(null);
+            setSelectedTableIds(new Set(location.tableIds));
+            setSelectedEdgeId(null);
+            setDefinitionTableId(null);
+            setSearchOpen(false);
+            setSearchQuery("");
+            setProposalLocation(location);
+            onSelectedTableChange?.(location.tableIds[0] ?? null);
+          }}
+        />
+      ) : null}
+
       {writable && showSelectionHint ? (
         <div className="schema-canvas__selection-hint" role="status">
           <kbd>Shift</kbd>
@@ -1280,21 +1445,33 @@ function SchemaCanvasInner({
 
       {features.annotations && writable && !features.canvasToolbar ? (
         <div
-          className={`schema-canvas__add-menu${addOpen ? " schema-canvas__add-menu--open" : ""}`}
+          ref={addMenu}
+          className="schema-canvas__add-menu"
           role="toolbar"
           aria-label={labels.add}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && addOpen) {
+              event.stopPropagation();
+              setAddOpen(false);
+              addToggle.current?.focus();
+            }
+          }}
         >
           <button
+            ref={addToggle}
             type="button"
             className="schema-canvas__add-toggle"
             aria-label={labels.add}
             aria-expanded={addOpen}
             onClick={() => setAddOpen((open) => !open)}
           >
-            <span aria-hidden="true">+</span>
+            <span className="schema-canvas__add-plus" aria-hidden="true">
+              +
+            </span>
+            <span>{labels.add}</span>
           </button>
           {addOpen ? (
-            <>
+            <div className="schema-canvas__add-options">
               {(
                 [
                   { kind: "frame", label: labels.addFrame },
@@ -1313,6 +1490,7 @@ function SchemaCanvasInner({
                   }}
                 >
                   <AnnotationActionIcon kind={kind} />
+                  <span>{label}</span>
                 </button>
               ))}
               {features.imageAnnotations && onUploadImage ? (
@@ -1320,12 +1498,16 @@ function SchemaCanvasInner({
                   type="button"
                   aria-label={labels.addImage}
                   title={labels.addImage}
-                  onClick={() => fileInput.current?.click()}
+                  onClick={() => {
+                    setAddOpen(false);
+                    fileInput.current?.click();
+                  }}
                 >
                   <AnnotationActionIcon kind="image" />
+                  <span>{labels.addImage}</span>
                 </button>
               ) : null}
-            </>
+            </div>
           ) : null}
           {features.imageAnnotations && onUploadImage ? (
             <input
@@ -1414,6 +1596,16 @@ function SchemaCanvasInner({
       {writable && selectedEdge && features.edgeEditor ? (
         <EdgeEditor
           edgeLabel={selectedEdge.field}
+          sourceTableLabel={
+            graph.tables.find((table) => table.id === selectedEdge.source)
+              ?.label ?? selectedEdge.source
+          }
+          targetTableLabel={
+            graph.tables.find((table) => table.id === selectedEdge.target)
+              ?.label ?? selectedEdge.target
+          }
+          onSelectSource={() => selectTable(selectedEdge.source)}
+          onSelectTarget={() => selectTable(selectedEdge.target)}
           route={edgeEditorRoute(selectedEdge, layout, model.edges)}
           labels={labels}
           onChange={(change) =>
@@ -1543,6 +1735,7 @@ function useSaveChannel<T>(
 }
 
 function TableEditor({
+  tableId,
   tableLabel,
   fields,
   entry,
@@ -1589,10 +1782,11 @@ function TableEditor({
           })
         }
       />
-      <TextField
+      <MarkdownField
+        key={tableId}
         label={labels.tableMarkdown}
         value={entry.markdown ?? ""}
-        multiline
+        labels={labels}
         onChange={(markdown) => onChange({ markdown })}
       />
       <ChoiceField
@@ -1765,6 +1959,10 @@ function DefinitionDialog({
 
 function EdgeEditor({
   edgeLabel,
+  sourceTableLabel,
+  targetTableLabel,
+  onSelectSource,
+  onSelectTarget,
   route,
   labels,
   onChange,
@@ -1772,6 +1970,10 @@ function EdgeEditor({
   onClose,
 }: {
   edgeLabel: string;
+  sourceTableLabel: string;
+  targetTableLabel: string;
+  onSelectSource: () => void;
+  onSelectTarget: () => void;
   route: SchemaEdgeLayout;
   labels: SchemaCanvasLabels;
   onChange: (change: Partial<SchemaEdgeLayout>) => void;
@@ -1780,6 +1982,37 @@ function EdgeEditor({
 }) {
   return (
     <Editor title={edgeLabel} labels={labels} onClose={onClose}>
+      <dl className="schema-canvas__edge-tables">
+        {[
+          {
+            label: labels.sourceTable,
+            table: sourceTableLabel,
+            onSelect: onSelectSource,
+          },
+          {
+            label: labels.targetTable,
+            table: targetTableLabel,
+            onSelect: onSelectTarget,
+          },
+        ].map(({ label, table, onSelect }) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>
+              <button
+                type="button"
+                onClick={onSelect}
+                aria-label={`${label}: ${table}. ${labels.goToTable}`}
+                title={labels.goToTable}
+              >
+                <strong>{table}</strong>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M7 17 17 7M7 7h10v10" />
+                </svg>
+              </button>
+            </dd>
+          </div>
+        ))}
+      </dl>
       <ChoiceField
         label={labels.route}
         value={route.route ?? "straight"}
@@ -1907,10 +2140,11 @@ function AnnotationEditor({
         </label>
       ) : null}
       {annotation.kind === "note" || annotation.kind === "text" ? (
-        <TextField
+        <MarkdownField
+          key={annotation.id}
           label={labels.markdown}
           value={annotation.markdown ?? ""}
-          multiline
+          labels={labels}
           onChange={(markdown) => onChange({ markdown })}
         />
       ) : null}
@@ -1990,28 +2224,16 @@ function Editor({
 function TextField({
   label,
   value,
-  multiline = false,
   onChange,
 }: {
   label: string;
   value: string;
-  multiline?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <label className="schema-canvas__form-field">
       <span>{label}</span>
-      {multiline ? (
-        <textarea
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      ) : (
-        <input
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
+      <input value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

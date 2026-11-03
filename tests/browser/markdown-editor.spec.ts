@@ -1,0 +1,181 @@
+import { expect, test, type Page } from "@playwright/test";
+
+async function writable(page: Page, markdown?: string) {
+  await page.goto(
+    markdown === undefined ? "/" : `/?markdown=${encodeURIComponent(markdown)}`,
+  );
+  await page.getByTestId("mode").click();
+}
+
+async function add(page: Page, kind: "note" | "text") {
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: `Add ${kind}`, exact: true }).click();
+}
+
+for (const kind of ["note", "text", "table"] as const) {
+  test(`${kind} uses formatted editing and saves Markdown`, async ({
+    page,
+  }) => {
+    await writable(page);
+    if (kind === "table")
+      await page.getByText("Projects", { exact: true }).click();
+    else await add(page, kind);
+    const content = page.getByRole("textbox", {
+      name: kind === "table" ? "Table Markdown" : "Markdown",
+      exact: true,
+    });
+    await expect(content).toHaveAttribute("contenteditable", "true");
+    await content.fill("Fictional documentation");
+    await content.press("ControlOrMeta+a");
+    await page.getByRole("button", { name: "Bold", exact: true }).click();
+    await expect(content.locator("strong")).toHaveText(
+      "Fictional documentation",
+    );
+    await page.getByRole("combobox", { name: "Text style" }).selectOption("2");
+    await expect(content.locator("h2 strong")).toHaveText(
+      "Fictional documentation",
+    );
+    const saved = page.getByTestId(kind === "table" ? "layout" : "annotations");
+    await expect(saved).toContainText("## **Fictional documentation**");
+    await page
+      .getByRole("button", { name: "Markdown source", exact: true })
+      .click();
+    await expect(content).toHaveValue("## **Fictional documentation**");
+  });
+}
+
+test("read-only inspection does not load Tiptap", async ({ page }) => {
+  const modules: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("markdown-editor.tsx"))
+      modules.push(request.url());
+  });
+  await page.goto("/");
+  await page.getByText("Projects", { exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "View definition" }),
+  ).toBeVisible();
+  expect(modules).toHaveLength(0);
+  await page.getByTestId("mode").click();
+  await expect(
+    page.getByRole("textbox", { name: "Table Markdown" }),
+  ).toHaveAttribute("contenteditable", "true");
+  expect(modules).toHaveLength(1);
+});
+
+test("opening, changing views and expanding preserve the exact saved source", async ({
+  page,
+}) => {
+  const markdown =
+    "\n\n# Fictional projects\n\n**Keep this**  \n\n3. first\n4. second\n\n";
+  await writable(page, markdown);
+  const original = await page.getByTestId("layout").textContent();
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", {
+    name: "Table Markdown",
+    exact: true,
+  });
+  await expect(content).toHaveAttribute("contenteditable", "true");
+  await page
+    .getByRole("button", { name: "Markdown source", exact: true })
+    .click();
+  await expect(content).toHaveValue(markdown);
+  await page
+    .getByRole("button", { name: "Markdown source", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Expand editor" }).click();
+  const dialog = page.getByRole("dialog", {
+    name: "Table Markdown",
+    exact: true,
+  });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toContainText("Fictional projects");
+  await dialog.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Expand editor" }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "Markdown source", exact: true })
+    .click();
+  await expect(content).toHaveValue(markdown);
+  await expect(page.getByTestId("layout")).toHaveText(original!);
+  await expect(page.getByTestId("dirty")).toHaveText("false");
+});
+
+test("rich-text lists, links, native undo and expanded editing work", async ({
+  page,
+}) => {
+  await writable(page);
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", {
+    name: "Table Markdown",
+    exact: true,
+  });
+  await expect(content).toHaveAttribute("contenteditable", "true");
+  await content.fill("Project guide");
+  await content.press("ControlOrMeta+a");
+  await page.getByRole("button", { name: "Link", exact: true }).click();
+  const url = page.getByRole("textbox", { name: "Link URL" });
+  await url.fill("javascript:alert(1)");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Enter a web address");
+  await url.fill("https://example.com/guide");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(content.locator("a")).toHaveAttribute(
+    "href",
+    "https://example.com/guide",
+  );
+  await page
+    .getByRole("button", { name: "Bulleted list", exact: true })
+    .click();
+  await expect(content.locator("ul li")).toHaveText("Project guide");
+  await content.press("ControlOrMeta+z");
+  await expect(content.locator("ul")).toHaveCount(0);
+  await expect(page.getByTestId("annotations")).toHaveText("[]");
+  await page.getByRole("button", { name: "Expand editor" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog
+    .getByRole("textbox", { name: "Table Markdown" })
+    .fill("Expanded documentation");
+  await dialog.getByRole("button", { name: "Collapse editor" }).click();
+  await expect(content).toHaveText("Expanded documentation");
+  await expect(page.getByTestId("layout")).toContainText(
+    '"markdown":"Expanded documentation"',
+  );
+});
+
+test("content outside the rich schema stays editable in Source mode", async ({
+  page,
+}) => {
+  const markdown =
+    "# Fictional\n\n![diagram](diagram.png)\n\n<div>Keep the original</div>\n\n| A | B |\n| - | - |\n| 1 | 2 |\n";
+  await writable(page, markdown);
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", { name: "Table Markdown" });
+  await expect(content).toHaveValue(markdown);
+  await expect(
+    page.getByText("This content uses formatting available in Source mode."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Markdown source", exact: true }),
+  ).toBeDisabled();
+  await content.fill(`${markdown}\nAn extra note.\n`);
+  await expect(content).toHaveValue(`${markdown}\nAn extra note.\n`);
+  await expect(page.getByTestId("layout")).toContainText("Keep the original");
+});
+
+test("source editing remains available if the lazy editor fails to load", async ({
+  page,
+}) => {
+  await page.route("**/markdown-editor.tsx*", (route) => route.abort());
+  await writable(page, "# Fictional source");
+  await page.getByText("Projects", { exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("could not load");
+  await page
+    .getByRole("textbox", { name: "Table Markdown" })
+    .fill("# Source remains editable");
+  await expect(page.getByTestId("layout")).toContainText(
+    "# Source remains editable",
+  );
+});

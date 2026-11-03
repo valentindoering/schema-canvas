@@ -11,6 +11,8 @@ export default defineConfig({
     "server/json-store/index": "src/server/json-store/index.ts",
     "server/layout/index": "src/server/layout/index.ts",
     "server/annotations/index": "src/server/annotations/index.ts",
+    "server/review-store/index": "src/server/review-store/index.ts",
+    "server/agent/index": "src/server/agent/index.ts",
     cli: "src/cli.ts",
   },
   format: ["esm"],
@@ -18,7 +20,7 @@ export default defineConfig({
   platform: "neutral",
   dts: true,
   sourcemap: false,
-  splitting: false,
+  splitting: true,
   clean: true,
   external: ["@xyflow/react", "react", "react-dom", "typescript"],
   async onSuccess() {
