@@ -1,4 +1,8 @@
-import { parseSchemaAnnotations } from "schema-canvas/core";
+import {
+  createCanvasReviewService,
+  getCanvasContext,
+  parseSchemaAnnotations,
+} from "schema-canvas/core";
 import { createRef } from "react";
 import {
   SchemaCanvas,
@@ -9,6 +13,8 @@ import { parseConvexSchema } from "schema-canvas/server/convex";
 import { createJsonStore } from "schema-canvas/server/json-store";
 import { checkSchemaLayout } from "schema-canvas/server/layout";
 import { migrateSchemaAnnotationsFile } from "schema-canvas/server/annotations";
+import { createFileCanvasReviewStore } from "schema-canvas/server/review-store";
+import { createCanvasAgentServer } from "schema-canvas/server/agent";
 import { parsePostgresSchema } from "schema-canvas/server/postgres";
 
 const graph = parsePostgresSchema(
@@ -18,6 +24,10 @@ const layout = checkSchemaLayout({}, graph).layout;
 parseSchemaAnnotations([]);
 
 export const adapters = {
+  createFileCanvasReviewStore,
+  createCanvasAgentServer,
+  createCanvasReviewService,
+  getCanvasContext,
   parseConvexSchema,
   createJsonStore,
   migrateSchemaAnnotationsFile,

@@ -5,6 +5,21 @@ async function clickAdd(page: Page, name: string) {
   await page.getByRole("button", { name }).click();
 }
 
+async function markdownSourceField(page: Page) {
+  await showMarkdownSource(page);
+  return page.getByRole("textbox", { name: "Markdown", exact: true });
+}
+
+async function showMarkdownSource(page: Page) {
+  const source = page.getByRole("button", {
+    name: "Markdown source",
+    exact: true,
+  });
+  await expect(source).toBeVisible();
+  if ((await source.getAttribute("aria-pressed")) !== "true")
+    await source.click();
+}
+
 test("compact manual zoom controls work in read-only mode", async ({
   page,
 }) => {
@@ -104,7 +119,9 @@ test("manual dark mode colors the canvas, details, arrows, and Markdown", async 
     content: "ul { list-style: none; } li::marker { color: white; }",
   });
   await clickAdd(page, "Add note");
-  await page.getByLabel("Markdown").fill("# Reminder\n\n- planet\n- moon");
+  await (
+    await markdownSourceField(page)
+  ).fill("# Reminder\n\n- planet\n- moon");
   const note = page.locator(".schema-canvas__annotation-card--note");
   const noteBackground = await note.evaluate(
     (element) => getComputedStyle(element).backgroundColor,
@@ -276,6 +293,7 @@ test("renders Markdown in notes and below table titles, with a color palette", a
   await page.getByTestId("mode").click();
   await page.getByText("Projects", { exact: true }).click();
   const editor = page.locator(".schema-canvas__editor");
+  await showMarkdownSource(page);
   await editor
     .getByRole("textbox", { name: "Table Markdown" })
     .fill("## Purpose\n**Fictional** project records");
@@ -291,6 +309,7 @@ test("renders Markdown in notes and below table titles, with a color palette", a
   );
 
   await clickAdd(page, "Add note");
+  await showMarkdownSource(page);
   await page
     .locator(".schema-canvas__editor")
     .getByRole("textbox", { name: "Markdown" })
@@ -303,6 +322,7 @@ test("renders Markdown in notes and below table titles, with a color palette", a
   await expect(editor.getByRole("textbox", { name: "Label" })).toHaveCount(0);
 
   await clickAdd(page, "Add text");
+  await showMarkdownSource(page);
   await editor
     .getByRole("textbox", { name: "Markdown" })
     .fill("# Starship summary");
@@ -323,6 +343,7 @@ for (const kind of ["note", "text", "table"] as const) {
     } else {
       await clickAdd(page, kind === "note" ? "Add note" : "Add text");
     }
+    await showMarkdownSource(page);
     const markdown = page.getByRole("textbox", {
       name: kind === "table" ? "Table Markdown" : "Markdown",
       exact: true,
@@ -353,6 +374,7 @@ for (const kind of ["note", "text", "table"] as const) {
     } else {
       await page.locator(`.schema-canvas__annotation-card--${kind}`).click();
     }
+    await showMarkdownSource(page);
     await expect(markdown).toHaveValue(expected);
   });
 }
@@ -387,6 +409,7 @@ test("undo restores table appearance while Markdown editing keeps native keys", 
   await page.getByTestId("mode").click();
   await page.getByText("Projects", { exact: true }).click();
   const editor = page.locator(".schema-canvas__editor");
+  await showMarkdownSource(page);
   const markdown = editor.getByRole("textbox", { name: "Table Markdown" });
   await markdown.fill("# Fictional projects");
   await markdown.press("Control+d");
@@ -542,7 +565,7 @@ test("writable mode supports direct annotation resize and explicit deletion", as
   await expect(
     page.getByRole("button", { name: "Delete annotation" }),
   ).toBeVisible();
-  await page.getByLabel("Markdown").fill("# Milestone");
+  await (await markdownSourceField(page)).fill("# Milestone");
   await expect(page.getByLabel("Width")).toHaveCount(0);
   await expect(
     page.locator(".schema-canvas__annotation-card").getByText("Milestone", {
@@ -596,20 +619,20 @@ test("Markdown notes keep lists and overflow readable", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("mode").click();
   await clickAdd(page, "Add note");
-  await page
-    .getByLabel("Markdown")
-    .fill(
-      [
-        "Invariants",
-        "- first item",
-        "- second item",
-        "",
-        "Next paragraph with an_unbroken_identifier_that_must_wrap",
-        "",
-        ...Array.from({ length: 12 }, (_, index) => `Detail ${index + 1}.\n`),
-      ].join("\n"),
-    );
-  await page.getByLabel("Markdown").blur();
+  await (
+    await markdownSourceField(page)
+  ).fill(
+    [
+      "Invariants",
+      "- first item",
+      "- second item",
+      "",
+      "Next paragraph with an_unbroken_identifier_that_must_wrap",
+      "",
+      ...Array.from({ length: 12 }, (_, index) => `Detail ${index + 1}.\n`),
+    ].join("\n"),
+  );
+  await (await markdownSourceField(page)).blur();
 
   const note = page.locator(".schema-canvas__annotation-card--note").last();
   const body = note.locator(".schema-canvas__markdown p").first();
@@ -653,6 +676,7 @@ test("Markdown markers and spacing survive host CSS resets in both modes", async
   });
   await page.getByTestId("mode").click();
   await page.getByText("Projects", { exact: true }).click();
+  await showMarkdownSource(page);
   await page
     .getByRole("textbox", { name: "Table Markdown" })
     .fill("## Overview\n\n- first\n- second\n\n1. third");
@@ -660,28 +684,28 @@ test("Markdown markers and spacing survive host CSS resets in both modes", async
     '[data-id="projects"] .schema-canvas__table-markdown',
   );
   await clickAdd(page, "Add note");
-  await page
-    .getByLabel("Markdown")
-    .fill(
-      [
-        "# Field guide",
-        "",
-        "First paragraph with **bold** and *emphasis*.",
-        "",
-        "- planet",
-        "  - moon",
-        "- comet",
-        "",
-        "3. third",
-        "4. fourth",
-        "",
-        "> Remember this",
-        "",
-        "```text",
-        "an_unbroken_line_that_is_longer_than_the_note_width_and_needs_horizontal_scrolling",
-        "```",
-      ].join("\n"),
-    );
+  await (
+    await markdownSourceField(page)
+  ).fill(
+    [
+      "# Field guide",
+      "",
+      "First paragraph with **bold** and *emphasis*.",
+      "",
+      "- planet",
+      "  - moon",
+      "- comet",
+      "",
+      "3. third",
+      "4. fourth",
+      "",
+      "> Remember this",
+      "",
+      "```text",
+      "an_unbroken_line_that_is_longer_than_the_note_width_and_needs_horizontal_scrolling",
+      "```",
+    ].join("\n"),
+  );
   const note = page.locator(".schema-canvas__annotation-card--note").last();
   const markdown = note.locator(".schema-canvas__markdown");
   const assertFormatting = async () => {
@@ -742,7 +766,9 @@ test("Markdown markers and spacing survive host CSS resets in both modes", async
     "decimal",
   );
   await clickAdd(page, "Add text");
-  await page.getByLabel("Markdown").fill("## Caption\n\n- moon\n- planet");
+  await (
+    await markdownSourceField(page)
+  ).fill("## Caption\n\n- moon\n- planet");
   const textMarkdown = page.locator(
     ".schema-canvas__annotation-card--text .schema-canvas__markdown",
   );
@@ -773,10 +799,87 @@ test("writable mode exposes table and edge controls", async ({ page }) => {
   await page.getByRole("button", { name: "Show all edges" }).click();
 });
 
+for (const endpoint of [
+  { role: "Source", label: "Projects", id: "projects" },
+  { role: "Target", label: "Accounts", id: "accounts" },
+]) {
+  test(`arrow details identify both tables and jump to the ${endpoint.role.toLowerCase()} table`, async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByTestId("mode").click();
+    const originalLayout = await page.getByTestId("layout").textContent();
+    await page.locator(".react-flow__edge").first().click();
+    await expect(
+      page.getByRole("button", {
+        name: "Source table: Projects. Go to table",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Target table: Accounts. Go to table",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Straight", exact: true }),
+    ).toBeVisible();
+
+    const jump = page.getByRole("button", {
+      name: `${endpoint.role} table: ${endpoint.label}. Go to table`,
+    });
+    if (endpoint.role === "Target") {
+      await jump.focus();
+      await jump.press("Enter");
+    } else {
+      await jump.click();
+    }
+
+    await expect(page.getByTestId("selected")).toHaveText(endpoint.id);
+    const table = page.locator(`[data-id="${endpoint.id}"].selected`);
+    await expect(table).toBeVisible();
+    await expect(page.locator(".schema-canvas__edge-tables")).toHaveCount(0);
+    await expect(page.getByTestId("table-details")).toHaveText(
+      `Fixture source: ${endpoint.id}`,
+    );
+    await expect
+      .poll(async () => {
+        const canvas = await page.locator(".react-flow").boundingBox();
+        const box = await table.boundingBox();
+        return Math.abs(
+          box!.x + box!.width / 2 - (canvas!.x + canvas!.width / 2),
+        );
+      })
+      .toBeLessThan(5);
+    await expect(page.getByTestId("layout")).toHaveText(originalLayout!);
+    await expect(page.getByTestId("dirty")).toHaveText("false");
+  });
+}
+
 type SchemaAnnotationSnapshot = {
   markdown?: string;
   width: number;
 };
+
+test("arrow details keep navigation and editing reachable on a narrow canvas", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 640, height: 700 });
+  await page.goto("/");
+  await page.getByTestId("mode").click();
+  await page.locator(".react-flow__edge").first().click();
+  await expect(
+    page.getByRole("button", {
+      name: "Source table: Projects. Go to table",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Target table: Accounts. Go to table",
+    }),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: "Hidden", exact: true }).check();
+  await expect(page.getByTestId("layout")).toContainText('"hidden":true');
+});
 
 test("moves an existing arrow tip to a chosen table port", async ({ page }) => {
   await page.goto("/");

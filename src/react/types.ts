@@ -1,6 +1,9 @@
 import type { CSSProperties, ReactNode, Ref } from "react";
+import type { CanvasProposalReviewControls } from "./canvas-proposal-inbox.js";
 
 import type {
+  CanvasContext,
+  CanvasContextQuery,
   SaveRequest,
   SaveResponse,
   SaveQueueSnapshot,
@@ -52,6 +55,9 @@ export type SchemaCanvasLabels = {
   route: string;
   straight: string;
   elbow: string;
+  sourceTable: string;
+  targetTable: string;
+  goToTable: string;
   sourcePort: string;
   targetPort: string;
   top: string;
@@ -72,6 +78,32 @@ export type SchemaCanvasLabels = {
   text: string;
   note: string;
   markdown: string;
+  editorLoading: string;
+  editorLoadFailed: string;
+  markdownSource: string;
+  writeFormatted: string;
+  source: string;
+  expandEditor: string;
+  collapseEditor: string;
+  expand: string;
+  doneEditing: string;
+  markdownSourceOnly: string;
+  formatting: string;
+  textStyle: string;
+  paragraph: string;
+  heading: string;
+  bold: string;
+  italic: string;
+  bulletList: string;
+  orderedList: string;
+  list: string;
+  inlineCode: string;
+  link: string;
+  linkUrl: string;
+  applyLink: string;
+  removeLink: string;
+  invalidLink: string;
+
   color: string;
   slate: string;
   blue: string;
@@ -95,9 +127,54 @@ export type SchemaCanvasLabels = {
   definitionLoading: string;
   definitionFailed: string;
   closeDefinition: string;
+  aiContext: string;
+  closeContext: string;
+  contextExplanation: string;
+  downloadMarkdown: string;
+  downloadJson: string;
+  downloadDiagram: string;
+  contextDiagram: string;
+  contextText: string;
+  loadingContext: string;
+  reviewSuggestions: string;
+  closeReview: string;
+  reviewUnsaved: string;
+  backToSuggestions: string;
+  proposedBy: string;
+  staleProposal: string;
+  reviewPreview: string;
+  reviewChanges: string;
+  reviewCanvas: string;
+  beforeChange: string;
+  afterChange: string;
+  reviewConfirmation: string;
+  rejectSuggestion: string;
+  applyReviewedChanges: string;
+  reviewWorking: string;
+  noPendingSuggestions: string;
+  reviewDocumentation: string;
+  reviewKind: string;
+  reviewUpdateDocumentation: string;
+  reviewMoveTable: string;
+  reviewChangeAppearance: string;
+  reviewChangeArrow: string;
+  reviewAddAnnotation: string;
+  reviewUpdateAnnotation: string;
+  reviewDeleteAnnotation: string;
+  reviewDiagramNotice: string;
+  reviewVisible: string;
+  collapseSuggestions: string;
+  expandSuggestions: string;
+  goToSuggestion: string;
+  reviewReason: string;
+  reviewPosition: string;
+  reviewSize: string;
+  reviewRetry: string;
+  reviewUnchangedLines: string;
 };
 
 export type SchemaCanvasFeatures = {
+  contextExport: boolean;
   canvasToolbar: boolean;
   themeToggle: boolean;
   navigationControls: boolean;
@@ -151,6 +228,8 @@ export type SchemaCanvasProps = {
   ) =>
     | Promise<{ path: string; source: string }>
     | { path: string; source: string };
+  /** The host supplies pending proposals and authenticated human review callbacks. */
+  proposalReview?: CanvasProposalReviewControls;
   className?: string;
   style?: CSSProperties;
 };
@@ -164,6 +243,8 @@ export type SchemaCanvasSaveState = {
 
 export type SchemaCanvasHandle = {
   getSaveState(): SchemaCanvasSaveState;
+  /** Read a snapshot of current documentation and resolved spatial bounds; never saves. */
+  getContext(query?: CanvasContextQuery): Promise<CanvasContext>;
   /** Bypass debounce, retry failed values, and wait for both channels to settle. */
   flushSaves(): Promise<void>;
   /** Wait for both channels without retrying errors or bypassing debounce. */
@@ -208,6 +289,9 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   route: "Route",
   straight: "Straight",
   elbow: "Elbow",
+  sourceTable: "Source table",
+  targetTable: "Target table",
+  goToTable: "Go to table",
   sourcePort: "Source port",
   targetPort: "Target port",
   top: "Top",
@@ -228,6 +312,33 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   text: "Text",
   note: "Note",
   markdown: "Markdown",
+  editorLoading: "Loading editor…",
+  editorLoadFailed:
+    "The formatted editor could not load. You can still edit the Markdown source.",
+  markdownSource: "Markdown source",
+  writeFormatted: "Write",
+  source: "Source",
+  expandEditor: "Expand editor",
+  collapseEditor: "Collapse editor",
+  expand: "Expand",
+  doneEditing: "Done",
+  markdownSourceOnly: "This content uses formatting available in Source mode.",
+  formatting: "Text formatting",
+  textStyle: "Text style",
+  paragraph: "Text",
+  heading: "Heading",
+  bold: "Bold",
+  italic: "Italic",
+  bulletList: "Bulleted list",
+  orderedList: "Numbered list",
+  list: "List",
+  inlineCode: "Inline code",
+  link: "Link",
+  linkUrl: "Link URL",
+  applyLink: "Apply",
+  removeLink: "Remove",
+  invalidLink: "Enter a web address, email, phone number, or relative link.",
+
   color: "Color",
   slate: "Slate",
   blue: "Blue",
@@ -251,9 +362,57 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   definitionLoading: "Loading definition…",
   definitionFailed: "Could not load definition",
   closeDefinition: "Close definition",
+  aiContext: "AI context",
+  closeContext: "Close context",
+  contextExplanation:
+    "A read-only snapshot with documentation, spatial observations, and an optional matching diagram.",
+  downloadMarkdown: "Markdown",
+  downloadJson: "JSON",
+  downloadDiagram: "Diagram (SVG)",
+  contextDiagram: "Matching diagram",
+  contextText: "Canvas context text",
+  loadingContext: "Preparing context…",
+  reviewSuggestions: "Suggestions",
+  closeReview: "Close review",
+  reviewUnsaved: "Finish saving your edits before deciding a suggestion.",
+  backToSuggestions: "All suggestions",
+  proposedBy: "Proposed by",
+  staleProposal:
+    "The canvas has changed in an object this suggestion edits. Decline it or ask for a new suggestion.",
+  reviewPreview: "Preview",
+  reviewChanges: "Changes",
+  reviewCanvas: "Canvas",
+  beforeChange: "Before",
+  afterChange: "After",
+  reviewConfirmation: "Only Accept updates the live documentation.",
+  rejectSuggestion: "Decline",
+  applyReviewedChanges: "Accept",
+  reviewWorking: "Working…",
+  noPendingSuggestions: "No suggestions awaiting review.",
+  reviewDocumentation: "Documentation",
+  reviewKind: "Type",
+  reviewUpdateDocumentation: "Update documentation",
+  reviewMoveTable: "Move table",
+  reviewChangeAppearance: "Change appearance",
+  reviewChangeArrow: "Change arrow",
+  reviewAddAnnotation: "Add annotation",
+  reviewUpdateAnnotation: "Update annotation",
+  reviewDeleteAnnotation: "Delete annotation",
+  reviewDiagramNotice:
+    "Focused schematic with estimated sizes. Objects are arranged for this preview; the live canvas is unchanged.",
+  reviewVisible: "Visible",
+  collapseSuggestions: "Collapse suggestions",
+  expandSuggestions: "Expand suggestions",
+  goToSuggestion: "Go to",
+  reviewReason: "Why this change?",
+  reviewPosition: "Position",
+  reviewSize: "Size",
+  reviewRetry: "Refresh review",
+  reviewUnchangedLines: "unchanged lines",
 };
 
 export const defaultSchemaCanvasFeatures: SchemaCanvasFeatures = {
+  contextExport: true,
   canvasToolbar: false,
   themeToggle: true,
   navigationControls: true,

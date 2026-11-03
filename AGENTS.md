@@ -54,3 +54,13 @@ Removing that guard requires an explicit visibility and license decision.
 ## Codex worktrees
 
 The checked-in environment installs locked dependencies and starts an isolated playground on a free loopback port. Use `node scripts/worktree-dev.mjs status` for its URL, `start` to reuse it, and `stop` for cleanup. Codex cleanup stops only this worktree. Runtime files stay ignored.
+
+## Agent access to canvas documentation
+
+Consumer canvas documentation is read-only for agents. Submit documentation and
+layout suggestions through the proposal capability. Do not directly overwrite
+an authoritative document, layout, annotations, or review ledger to apply a
+suggestion. Human review and confirmation must precede the live change.
+Package implementation code and fictional test fixtures remain editable within
+the user's requested development scope. Authentication and filesystem isolation
+must be enforced by the consumer host; this instruction is not an access control.

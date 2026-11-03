@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0
+
+- Show source and target tables in arrow details, with direct canvas navigation.
+- Label the Add menu and its annotation actions.
+- Add a lazy-loaded Tiptap editor for table, note, and text Markdown, with source
+  editing and an expanded view. Opening an editor preserves exact saved Markdown.
+- Export AI context as Markdown, structured JSON, and matching diagrams. Query by
+  table, relationships, frame, view, selection, or bounds. Include distant region
+  documentation and hidden relationships without treating placement as ownership.
+- Add MCP read/proposal tools, durable review storage, and CLI agent support.
+  Agent transports cannot approve or apply changes. Hosts own authentication and
+  filesystem isolation.
+- Display pending suggestions in an open, collapsible panel with unified diffs,
+  compact position changes, navigation, focused previews, and explicit human
+  acceptance or rejection. Independent suggestions can be accepted separately;
+  conflicting edits remain blocked.
+- Add a fictional 96-table playground with eight separated regions and an agent
+  reading exercise.
+
+Existing layout and annotation files need no migration. The optional review
+ledger is a new, explicitly initialized store. Consumers enabling agent access
+must bind human review callbacks to authenticated host endpoints.
+
 ## 0.3.3
 
 - Preserve Markdown whitespace in note and text annotations so Enter and

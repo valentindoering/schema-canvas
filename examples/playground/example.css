@@ -38,25 +38,53 @@ button {
   background: #0b1220;
 }
 
-.playground--dark .playground__reset {
+.playground--dark .playground__examples {
   border-color: #40536b;
   color: #e7edf6;
   background: #142033;
 }
 
-.playground__reset {
+.playground__examples {
   position: absolute;
   z-index: 30;
   top: 12px;
   left: 50%;
-  min-height: 36px;
-  padding: 7px 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   color: #172036;
   background: #fff;
-  cursor: pointer;
+  font-size: 12px;
   transform: translateX(-50%);
+  white-space: nowrap;
+}
+.playground__examples label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.playground__examples select,
+.playground__reset {
+  min-height: 28px;
+  padding: 4px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  color: inherit;
+  background: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+@media (max-width: 760px) {
+  .playground__examples {
+    top: 58px;
+    max-width: calc(100% - 24px);
+  }
+  .playground__examples label > span {
+    display: none;
+  }
 }
 
 .playground__reset:hover {
@@ -83,4 +111,36 @@ button {
 
 .playground__canvas .schema-canvas {
   min-height: 0;
+}
+
+.playground__proposal-example {
+  position: absolute;
+  z-index: 40;
+  left: 216px;
+  bottom: 18px;
+  padding: 7px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  color: #0f172a;
+  background: #fff;
+  font:
+    12px Inter,
+    sans-serif;
+  cursor: pointer;
+}
+.playground__error {
+  position: absolute;
+  z-index: 50;
+  right: 16px;
+  bottom: 220px;
+  max-width: 300px;
+  background: #fff;
+  color: #b91c1c;
+  padding: 12px;
+}
+@media (max-width: 760px) {
+  .playground__proposal-example {
+    left: 12px;
+    bottom: 58px;
+  }
 }

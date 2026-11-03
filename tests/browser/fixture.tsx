@@ -41,10 +41,18 @@ function Fixture() {
   }, []);
   const [writable, setWritable] = useState(false);
   const [theme, setTheme] = useState<SchemaCanvasTheme>("light");
+  const markdown = new URLSearchParams(location.search).get("markdown");
+  const initialMarkdownLayout: SchemaLayout =
+    markdown === null
+      ? initialLayout
+      : {
+          ...initialLayout,
+          projects: { ...initialLayout.projects!, markdown },
+        };
   const [layout, setLayout] = useState<SchemaLayout>(() =>
     new URLSearchParams(location.search).has("farArrow")
-      ? { ...initialLayout, accounts: { x: 2400, y: 0 } }
-      : initialLayout,
+      ? { ...initialMarkdownLayout, accounts: { x: 2400, y: 0 } }
+      : initialMarkdownLayout,
   );
   const [annotations, setAnnotations] = useState<SchemaAnnotation[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);

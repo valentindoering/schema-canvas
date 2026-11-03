@@ -52,7 +52,11 @@ export async function readJsonText(filePath: string) {
   }
 }
 
-export async function writeJsonAtomic(filePath: string, value: unknown) {
+export async function writeJsonAtomic(
+  filePath: string,
+  value: unknown,
+  options: { mode?: number } = {},
+) {
   const contents = `${JSON.stringify(value, null, 2)}\n`;
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = path.join(
@@ -60,7 +64,11 @@ export async function writeJsonAtomic(filePath: string, value: unknown) {
     `.${path.basename(filePath)}.${randomUUID()}.tmp`,
   );
   try {
-    await writeFile(temporaryPath, contents, { encoding: "utf8", flag: "wx" });
+    await writeFile(temporaryPath, contents, {
+      encoding: "utf8",
+      flag: "wx",
+      ...(options.mode === undefined ? {} : { mode: options.mode }),
+    });
     await rename(temporaryPath, filePath);
     return jsonRevision(contents);
   } catch (cause) {
