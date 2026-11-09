@@ -59,7 +59,9 @@ export type CanvasProposal = CanvasProposalInput & {
   id: string;
   actorId: string;
   createdAt: string;
-  status: "pending" | "accepted" | "rejected";
+  /** "withdrawn" means the proposing agent declined its own suggestion. */
+  status: "pending" | "accepted" | "rejected" | "withdrawn";
+  /** For "withdrawn", reviewerId is the proposing agent's actor id. */
   decision?: { reviewerId: string; at: string; revision: string };
 };
 export type CanvasProposalChange = {
@@ -68,6 +70,14 @@ export type CanvasProposalChange = {
   objectId: string;
   before: unknown;
   after: unknown;
+  /** The suggestion was combined with edits made since it was proposed. */
+  merged?: true;
+};
+/** A field the proposal writes that changed since its base in an incompatible way. */
+export type CanvasProposalConflict = {
+  index: number;
+  objectId: string;
+  field: string;
 };
 export type CanvasProposalReview = {
   proposal: CanvasProposal;
@@ -75,6 +85,8 @@ export type CanvasProposalReview = {
   baseRevision: string;
   currentRevision: string;
   stale: boolean;
+  /** Why the proposal is stale. Empty when it can still be accepted. */
+  conflicts?: CanvasProposalConflict[];
   before: CanvasDocument;
   after: CanvasDocument;
   changes: CanvasProposalChange[];
@@ -333,4 +345,208 @@ export function previewCanvasProposal(
   if (canonicalCanvasJson(document) === canonicalCanvasJson(candidate))
     throw new Error("The proposal does not change the document.");
   return { document, changes };
+}
+
+function lineMatches(base: string[], other: string[]): Int32Array | null {
+  const matches = new Int32Array(base.length).fill(-1);
+  let prefix = 0;
+  while (
+    prefix < base.length &&
+    prefix < other.length &&
+    base[prefix] === other[prefix]
+  )
+    matches[prefix] = prefix++;
+  let suffix = 0;
+  while (
+    suffix < base.length - prefix &&
+    suffix < other.length - prefix &&
+    base[base.length - 1 - suffix] === other[other.length - 1 - suffix]
+  ) {
+    matches[base.length - 1 - suffix] = other.length - 1 - suffix;
+    suffix++;
+  }
+  const a = base.slice(prefix, base.length - suffix);
+  const b = other.slice(prefix, other.length - suffix);
+  if (a.length * b.length > 250_000) return null;
+  const width = b.length + 1;
+  const lengths = new Uint32Array((a.length + 1) * width);
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      lengths[i * width + j] =
+        a[i] === b[j]
+          ? lengths[(i + 1) * width + j + 1]! + 1
+          : Math.max(
+              lengths[(i + 1) * width + j]!,
+              lengths[i * width + j + 1]!,
+            );
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    if (a[i] === b[j]) matches[prefix + i++] = prefix + j++;
+    else if (lengths[(i + 1) * width + j]! >= lengths[i * width + j + 1]!) i++;
+    else j++;
+  }
+  return matches;
+}
+
+/**
+ * Line-based three-way merge. Returns null when both sides changed the same or
+ * adjacent lines differently; the caller must then treat the edit as a conflict.
+ */
+export function mergeCanvasText(
+  base: string,
+  ours: string,
+  theirs: string,
+): string | null {
+  if (ours === theirs || theirs === base) return ours;
+  if (ours === base) return theirs;
+  const o = base.split("\n");
+  const a = ours.split("\n");
+  const b = theirs.split("\n");
+  const ma = lineMatches(o, a);
+  const mb = lineMatches(o, b);
+  if (!ma || !mb) return null;
+  const same = (x: string[], y: string[]) =>
+    x.length === y.length && x.every((line, index) => line === y[index]);
+  const out: string[] = [];
+  const resolve = (oc: string[], ac: string[], bc: string[]) => {
+    if (same(ac, oc)) out.push(...bc);
+    else if (same(bc, oc) || same(ac, bc)) out.push(...ac);
+    else return false;
+    return true;
+  };
+  let i = 0,
+    ia = 0,
+    ib = 0;
+  for (;;) {
+    let k = 0;
+    while (i + k < o.length && ma[i + k] === ia + k && mb[i + k] === ib + k)
+      k++;
+    if (k) {
+      out.push(...o.slice(i, i + k));
+      i += k;
+      ia += k;
+      ib += k;
+      continue;
+    }
+    let next = i;
+    while (next < o.length && (ma[next] === -1 || mb[next] === -1)) next++;
+    if (next === o.length) {
+      if (!resolve(o.slice(i), a.slice(ia), b.slice(ib))) return null;
+      return out.join("\n");
+    }
+    const na = ma[next]!,
+      nb = mb[next]!;
+    if (!resolve(o.slice(i, next), a.slice(ia, na), b.slice(ib, nb)))
+      return null;
+    i = next;
+    ia = na;
+    ib = nb;
+  }
+}
+
+export type CanvasProposalRebase = {
+  /** Operations to apply to the current document. Merged Markdown is already resolved. */
+  operations: CanvasProposalOperation[];
+  conflicts: CanvasProposalConflict[];
+  /** Operation indexes whose Markdown was merged with intervening edits. */
+  merged: number[];
+};
+
+/**
+ * Field-level preconditions: an operation conflicts only when the field it writes
+ * changed since the proposal's base (or its target disappeared). Edits elsewhere on
+ * the board, moves of a documented table, and unrelated graph changes never block.
+ * Markdown edited on both sides is merged line by line when the edits do not overlap.
+ */
+export function rebaseCanvasProposal(
+  base: CanvasDocument,
+  current: CanvasDocument,
+  operations: readonly CanvasProposalOperation[],
+): CanvasProposalRebase {
+  const equal = (a: unknown, b: unknown) =>
+    canonicalCanvasJson(a ?? null) === canonicalCanvasJson(b ?? null);
+  const conflicts: CanvasProposalConflict[] = [];
+  const merged: number[] = [];
+  const added = new Set<string>();
+  const rebased = operations.map((operation, index) => {
+    const conflict = (objectId: string, field: string) => {
+      conflicts.push({ index, objectId, field });
+      return operation;
+    };
+    if ("tableId" in operation) {
+      const id = operation.tableId;
+      if (!current.graph.tables.some((table) => table.id === id))
+        return conflict(id, "table");
+      const before = Object.hasOwn(base.layout, id) ? base.layout[id] : null;
+      const now = Object.hasOwn(current.layout, id) ? current.layout[id] : null;
+      if (operation.op !== "move_table" && !now)
+        return conflict(id, "position");
+      if (operation.op === "move_table")
+        return equal(before?.x, now?.x) && equal(before?.y, now?.y)
+          ? operation
+          : conflict(id, "position");
+      if (operation.op === "set_table_appearance")
+        return equal(before?.appearance, now?.appearance)
+          ? operation
+          : conflict(id, "appearance");
+      const ours = now?.markdown ?? "";
+      if (equal(before?.markdown, now?.markdown)) return operation;
+      const markdown = mergeCanvasText(
+        before?.markdown ?? "",
+        operation.markdown,
+        ours,
+      );
+      if (markdown === null) return conflict(id, "markdown");
+      if (markdown !== operation.markdown) merged.push(index);
+      return { ...operation, markdown };
+    }
+    if (operation.op === "update_edge") {
+      const id = operation.edgeId;
+      const edge = current.graph.edges.find((candidate) => candidate.id === id);
+      const baseEdge = base.graph.edges.find(
+        (candidate) => candidate.id === id,
+      );
+      if (!edge || !baseEdge) return conflict(id, "edge");
+      const before = getSchemaEdgeLayout(base.layout, baseEdge) ?? {};
+      const now = getSchemaEdgeLayout(current.layout, edge) ?? {};
+      for (const key of Object.keys(operation.changes) as Array<
+        keyof typeof operation.changes
+      >)
+        if (!equal(before[key], now[key])) return conflict(id, key);
+      return operation;
+    }
+    if (operation.op === "add_annotation") {
+      const id = operation.annotation.id;
+      added.add(id);
+      return current.annotations.some((annotation) => annotation.id === id)
+        ? conflict(`annotation:${id}`, "id")
+        : operation;
+    }
+    const id = operation.annotationId;
+    const objectId = `annotation:${id}`;
+    if (added.has(id)) return operation;
+    const before = base.annotations.find((annotation) => annotation.id === id);
+    const now = current.annotations.find((annotation) => annotation.id === id);
+    if (!now) return conflict(objectId, "annotation");
+    if (operation.op === "delete_annotation")
+      return equal(before, now) ? operation : conflict(objectId, "annotation");
+    let changes = operation.changes;
+    for (const key of Object.keys(changes) as Array<keyof typeof changes>) {
+      const was = before?.[key];
+      const is = now[key];
+      if (equal(was, is)) continue;
+      if (key !== "markdown") return conflict(objectId, key);
+      const markdown = mergeCanvasText(
+        typeof was === "string" ? was : "",
+        changes.markdown!,
+        typeof is === "string" ? is : "",
+      );
+      if (markdown === null) return conflict(objectId, key);
+      if (markdown !== changes.markdown) merged.push(index);
+      changes = { ...changes, markdown };
+    }
+    return changes === operation.changes
+      ? operation
+      : { ...operation, changes };
+  });
+  return { operations: rebased, conflicts, merged };
 }

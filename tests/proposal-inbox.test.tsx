@@ -198,8 +198,10 @@ describe("persistent suggestion panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await screen.findByText("Save failed");
     expect(screen.getByRole("article")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Refresh review" }));
+    // A failed decision refetches the review rather than reusing a cached receipt.
     await waitFor(() => expect(controls.onOpenReview).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh review" }));
+    await waitFor(() => expect(controls.onOpenReview).toHaveBeenCalledTimes(3));
   });
   it("blocks a conflicting review while still allowing decline", async () => {
     const { controls, review } = fixture();
@@ -308,15 +310,20 @@ describe("persistent suggestion panel", () => {
         .disabled,
     ).toBe(true);
   });
-  it("disables both decisions while a request is in flight", async () => {
-    const { controls } = fixture();
-    let finish!: () => void;
-    controls.onAccept = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          finish = resolve;
-        }),
-    );
+  it("hides a decided card at once, saves in the background, and keeps other cards usable", async () => {
+    const a = fixture(),
+      b = fixture("proposal-2");
+    const finishes: Array<() => void> = [];
+    const controls = {
+      ...a.controls,
+      proposals: [a.proposal, b.proposal],
+      onOpenReview: vi.fn(async (id: string) =>
+        id === a.proposal.id ? a.review : b.review,
+      ),
+      onReject: vi.fn(
+        () => new Promise<void>((resolve) => finishes.push(resolve)),
+      ),
+    };
     render(
       <CanvasProposalInbox
         controls={controls}
@@ -324,13 +331,87 @@ describe("persistent suggestion panel", () => {
         hasUnsavedChanges={false}
       />,
     );
-    await screen.findByText("# Proposed guide");
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getAllByText("# Proposed guide")).toHaveLength(2),
+    );
+    fireEvent.click(
+      within(screen.getByRole("article", { name: a.proposal.title })).getByRole(
+        "button",
+        { name: "Decline" },
+      ),
+    );
     expect(
-      (screen.getByRole("button", { name: "Decline" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
-    expect(controls.onAccept).toHaveBeenCalledTimes(1);
-    await act(async () => finish());
+      screen.queryByRole("article", { name: a.proposal.title }),
+    ).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain(a.proposal.title);
+    const second = within(
+      screen.getByRole("article", { name: b.proposal.title }),
+    ).getByRole("button", { name: "Decline" }) as HTMLButtonElement;
+    expect(second.disabled).toBe(false);
+    fireEvent.click(second);
+    // Decisions are saved one at a time, in order.
+    await waitFor(() => expect(controls.onReject).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(controls.onReject).toHaveBeenCalledTimes(1);
+    await act(async () => finishes[0]!());
+    await waitFor(() => expect(controls.onReject).toHaveBeenCalledTimes(2));
+    await act(async () => finishes[1]!());
+    await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+  });
+  it("shows why a suggestion is blocked and when it was merged", async () => {
+    const { controls, review } = fixture();
+    controls.onOpenReview = vi.fn(async () => ({
+      ...review,
+      stale: true,
+      conflicts: [{ index: 0, objectId: "projects", field: "markdown" }],
+    }));
+    const view = render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    expect(await screen.findByText("Projects: Documentation")).toBeTruthy();
+    view.unmount();
+    const merged = fixture();
+    merged.controls.onOpenReview = vi.fn(async () => ({
+      ...merged.review,
+      changes: merged.review.changes.map((change) => ({
+        ...change,
+        merged: true as const,
+      })),
+    }));
+    render(
+      <CanvasProposalInbox
+        controls={merged.controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    expect(await screen.findByText(labels.reviewMerged)).toBeTruthy();
+  });
+  it("refreshes an open review quietly after the canvas saves", async () => {
+    const { controls } = fixture();
+    const view = render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+        documentVersion="a"
+      />,
+    );
+    await screen.findByText("# Proposed guide");
+    view.rerender(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+        documentVersion="b"
+      />,
+    );
+    // The previous review stays visible while the refresh runs.
+    expect(screen.getByText("# Proposed guide")).toBeTruthy();
+    await waitFor(() => expect(controls.onOpenReview).toHaveBeenCalledTimes(2));
   });
 });

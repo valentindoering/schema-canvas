@@ -65,10 +65,18 @@ export const canvasProposalInputSchema = {
       description:
         "Document revision from get_canvas_context. Required; stale proposals are refused.",
     },
-    title: { type: "string", minLength: 1, maxLength: 200 },
+    title: {
+      type: "string",
+      minLength: 1,
+      maxLength: 200,
+      description:
+        "Name the one table or note this changes, using its real table name.",
+    },
     reason: { type: "string", minLength: 1, maxLength: 5000 },
     operations: {
       type: "array",
+      description:
+        "Usually one operation. Several only when they change the same table note or annotation together (e.g. its text and its position).",
       minItems: 1,
       maxItems: 50,
       items: {
@@ -149,4 +157,15 @@ export const canvasProposalStatusSchema = {
   additionalProperties: false,
   required: ["proposalId"],
   properties: { proposalId: text },
+};
+export const canvasProposalListSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    status: {
+      type: "string",
+      enum: ["pending", "accepted", "rejected", "withdrawn"],
+      description: "Only proposals with this status. Omit for all of yours.",
+    },
+  },
 };

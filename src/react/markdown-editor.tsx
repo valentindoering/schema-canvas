@@ -1,9 +1,45 @@
 import { Markdown } from "@tiptap/markdown";
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import {
+  EditorContent,
+  Extension,
+  useEditor,
+  useEditorState,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MarkdownEditorProps } from "./markdown-field.js";
+
+/**
+ * Inside a list, Tab and Shift+Tab indent and outdent the item like a normal
+ * editor and never move focus out. On the first item, which cannot be indented,
+ * Tab does nothing. Outside lists, Tab keeps moving focus (no keyboard trap).
+ */
+const ListIndentation = Extension.create({
+  name: "schemaCanvasListIndentation",
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const inList = () =>
+      this.editor.isActive("bulletList") || this.editor.isActive("orderedList");
+    return {
+      Tab: () => {
+        if (!inList()) return false;
+        this.editor.commands.sinkListItem("listItem");
+        return true;
+      },
+      "Shift-Tab": () => {
+        if (!inList()) return false;
+        const { $from } = this.editor.state.selection;
+        let items = 0;
+        for (let depth = $from.depth; depth > 0; depth--)
+          if ($from.node(depth).type.name === "listItem") items++;
+        // A top-level item stays a list item; Backspace removes its bullet.
+        if (items > 1) this.editor.commands.liftListItem("listItem");
+        return true;
+      },
+    };
+  },
+});
 
 export default function MarkdownEditor({
   label,
@@ -30,6 +66,7 @@ export default function MarkdownEditor({
         link: { openOnClick: false, autolink: false },
       }),
       Markdown,
+      ListIndentation,
     ],
     content: value,
     contentType: "markdown",

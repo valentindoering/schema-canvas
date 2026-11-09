@@ -179,3 +179,58 @@ test("source editing remains available if the lazy editor fails to load", async 
     "# Source remains editable",
   );
 });
+
+test("Tab and Shift+Tab indent list items without leaving the editor", async ({
+  page,
+}) => {
+  await writable(page, "- first\n- second\n");
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", { name: "Table Markdown" });
+  await content.getByText("first", { exact: true }).click();
+  // The first item cannot be indented, but focus must stay in the editor.
+  await page.keyboard.press("Tab");
+  await expect(content).toBeFocused();
+  await content.getByText("second", { exact: true }).click();
+  // ProseMirror reads a mouse selection on the next selectionchange event.
+  await page.waitForFunction(() => {
+    const view = document.querySelector<
+      HTMLElement & {
+        editor?: {
+          state: { selection: { $from: { parent: { textContent: string } } } };
+        };
+      }
+    >(".ProseMirror");
+    return view?.editor?.state.selection.$from.parent.textContent === "second";
+  });
+  await page.keyboard.press("Tab");
+  await expect(content.locator("li li")).toHaveText("second");
+  await expect(page.getByTestId("layout")).toContainText(
+    String.raw`"markdown":"- first\n  - second"`,
+  );
+  await page.keyboard.press("Shift+Tab");
+  await expect(content.locator("li li")).toHaveCount(0);
+  await expect(content).toBeFocused();
+  // A top-level item stays a list item on Shift+Tab.
+  await page.keyboard.press("Shift+Tab");
+  await expect(content.locator("li")).toHaveCount(2);
+  await expect(content).toBeFocused();
+});
+
+test("the expanded editor is centered even with a host margin reset", async ({
+  page,
+}) => {
+  await writable(page);
+  await page.addStyleTag({
+    content: "*, ::before, ::after, ::backdrop { margin: 0; padding: 0; }",
+  });
+  await page.getByText("Projects", { exact: true }).click();
+  await page.getByRole("button", { name: "Expand editor" }).click();
+  const box = (await page.getByRole("dialog").boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(
+    Math.abs(box.x + box.width / 2 - viewport.width / 2),
+  ).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(box.y + box.height / 2 - viewport.height / 2),
+  ).toBeLessThanOrEqual(2);
+});

@@ -5,6 +5,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   canvasAgentPolicy,
+  canvasProposalGuidance,
   canvasContextMarkdown,
   canvasContextSvg,
   parseCanvasContextQuery,
@@ -14,6 +15,7 @@ import {
 import {
   canvasContextQuerySchema,
   canvasProposalInputSchema,
+  canvasProposalListSchema,
   canvasProposalStatusSchema,
   canvasSearchSchema,
 } from "./schemas.js";
@@ -22,7 +24,7 @@ export type CanvasAgentToolOptions = {
   reviewUrl?: (proposalId: string) => string;
 };
 
-/** Register ONLY read and proposal-submission capabilities. Mount transports and auth in the host. */
+/** Register ONLY read, proposal-submission and own-proposal withdrawal capabilities. Mount transports and auth in the host. */
 export function registerCanvasAgentTools(
   server: McpServer,
   agent: CanvasAgentCapabilities,
@@ -103,8 +105,7 @@ export function registerCanvasAgentTools(
   server.registerTool(
     "propose_canvas_change",
     {
-      description:
-        "Submit a documentation/layout proposal for human review in the canvas. This writes only to the proposal ledger. It never applies changes to the live documentation. Requires the exact document revision from get_canvas_context. There is no agent approval tool.",
+      description: `Submit a documentation/layout proposal for human review in the canvas. This writes only to the proposal ledger. It never applies changes to the live documentation. Requires the exact document revision from get_canvas_context. There is no agent approval tool. ${canvasProposalGuidance}`,
       inputSchema: fromJsonSchema(canvasProposalInputSchema),
       annotations: {
         ...annotations,
@@ -144,6 +145,48 @@ export function registerCanvasAgentTools(
       output(
         await agent.getProposal((input as { proposalId: string }).proposalId),
       ),
+    ),
+  );
+  server.registerTool(
+    "list_canvas_proposals",
+    {
+      description:
+        "List your own proposals, newest first, with status and whether each pending one is stale. Read-only.",
+      inputSchema: fromJsonSchema(canvasProposalListSchema),
+      annotations,
+    },
+    guarded(async (input) =>
+      output({
+        proposals: await agent.listProposals(
+          (
+            input as {
+              status?: "pending" | "accepted" | "rejected" | "withdrawn";
+            }
+          ).status,
+        ),
+      }),
+    ),
+  );
+  server.registerTool(
+    "withdraw_canvas_proposal",
+    {
+      description:
+        "Decline one of YOUR OWN pending proposals, e.g. when manual edits made it obsolete or you want to replace it. It never changes the live documentation and cannot accept anything; only a human accepts.",
+      inputSchema: fromJsonSchema(canvasProposalStatusSchema),
+      annotations: {
+        ...annotations,
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+      },
+    },
+    guarded(async (input) =>
+      output({
+        proposal: await agent.withdraw(
+          (input as { proposalId: string }).proposalId,
+        ),
+        message: "Withdrawn. The live documentation is unchanged.",
+      }),
     ),
   );
   return server;

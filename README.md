@@ -417,6 +417,22 @@ pending suggestion; it does not enter the canvas autosave queue. The host's
 human-only review endpoint applies it after the person opens and confirms the
 exact changes in the canvas.
 
+### Rules for proposing agents
+
+The human can only accept or decline a whole proposal, so agents should:
+
+- **Propose one change per table note or annotation.** Never bundle unrelated
+  notes into one proposal. Use several operations only when they change the same
+  object together, such as a note's text and its position.
+- **Write with real table names.** Say "a `cargo_manifests` row", not "a
+  manifest". Readers search for table names.
+- **Withdraw obsolete proposals.** When manual edits made one of its own pending
+  proposals unnecessary, the agent withdraws it instead of leaving it for the
+  human to decline.
+
+These rules are part of `canvasAgentPolicy`, returned with every context read,
+and of the MCP tool descriptions.
+
 ### Read context by names and relationships
 
 ```ts
@@ -532,9 +548,10 @@ archive decided proposals before the 1000-entry ledger limit is reached.
 Proposal operations are restricted to table documentation, placement and
 appearance; arrow presentation; and adding/updating/deleting annotations.
 Agents cannot alter schema declarations or arbitrary JSON paths. Asset URLs and
-new image annotations are excluded from proposal operations. Each proposal
-stores its original baseline for a durable before/after review. Treat the ledger
-as private documentation too.
+new image annotations are excluded from proposal operations. Each pending
+proposal stores its original baseline for a durable before/after review. Once a
+proposal is decided, its baseline is dropped and only the audit record remains,
+which keeps the ledger small. Treat the ledger as private documentation too.
 
 ### Connect the human review surface
 
@@ -575,23 +592,45 @@ Long unchanged sections of documentation fold away; changed lines remain visible
 Displaying a card calls `onOpenReview` before enabling its decision actions.
 Acceptance remains an explicit human click. Previews and navigation never change
 canvas state or call save callbacks. Accept is disabled while local edits are
-unsaved and when the proposal is stale. Stale proposals can still be declined.
-Refresh the controlled document, revision, and proposal props after every
-decision. The panel refreshes remaining cards automatically. Suggestions from
-one revision can be accepted individually when their affected objects remain
-unchanged. Conflicting suggestions must be resubmitted.
+unsaved and when the proposal is stale. Stale proposals can still be declined
+and list the fields that block them.
 
-The service compares each affected table layout or annotation with its stored
-baseline inside the decision transaction. Arrow changes also check their source
-table layout. It applies explicit operations to the latest document, preserving
-unrelated edits. Any schema-graph or view change invalidates pending suggestions.
-Proposal submission and whole-document saves still require the exact current
-revision. This uses the existing stored baseline; no persisted format changes.
+Decisions are optimistic: the card leaves the panel at once, a short status line
+names the decision being saved, and decisions are sent to the host one at a time
+in the background. The canvas and the other cards stay usable meanwhile. If a
+decision fails, its card returns with the error. Refresh the controlled document,
+revision, and proposal props after decisions; this need not block the decision
+callback. Open cards also refresh quietly after the canvas saves its own edits,
+keeping the previous review visible until the new one arrives.
+
+Staleness is decided per field. Each operation is compared only with the field
+it writes, against the proposal's stored baseline:
+
+| Operation              | Blocks only when, since the proposal                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| `set_table_markdown`   | that table's Markdown changed and cannot be merged, or the table is gone                 |
+| `move_table`           | that table's position changed                                                            |
+| `set_table_appearance` | that table's appearance changed                                                          |
+| `update_edge`          | the arrow setting it writes changed, or the arrow is gone                                |
+| `add_annotation`       | an annotation with the same id exists                                                    |
+| `update_annotation`    | a property it writes changed (Markdown: and cannot be merged), or the annotation is gone |
+| `delete_annotation`    | the annotation changed or is gone                                                        |
+
+Moving a documented table, editing other tables or annotations, renaming tables,
+and changing views never block a suggestion. When both the human and the
+suggestion edited the same Markdown, a line-based three-way merge combines them
+if they changed different lines; the card marks such a change as merged and the
+diff shows the suggestion against the current text. Overlapping or adjacent line
+edits are a conflict. Proposal submission and whole-document saves still require
+the exact current revision.
 
 The server issues a short-lived, reviewer-bound token when opening a review.
 Acceptance verifies that token, the exact proposal digest, pending status, and
-the affected objects against their baseline inside the same transaction. Repeated approval
-cannot apply twice. Decisions retain reviewer, timestamp, and resulting revision;
+the affected fields against their baseline inside the same transaction. A merged
+result is bound to the receipt too: if the human edits the same text again after
+opening the review, acceptance asks for the updated result to be reviewed first.
+Reopening a card with a still-valid receipt is a read and does not write the
+ledger. Repeated approval cannot apply twice. Decisions retain reviewer, timestamp, and resulting revision;
 review tokens and baseline documents are never returned through agent tools.
 
 This establishes a permission boundary only if the host protects it. An agent
@@ -622,10 +661,15 @@ browser import graph. The tool surface contains exactly:
 - `get_canvas_context({ table?, hops?, view?, frame?, tableIds?, annotationIds?, bounds?, maxTables?, maxAnnotations?, includeImage? })`
 - `propose_canvas_change({ baseRevision, title, reason, operations })`
 - `get_canvas_proposal({ proposalId })`
+- `list_canvas_proposals({ status? })` (the agent's own proposals)
+- `withdraw_canvas_proposal({ proposalId })` (only the agent's own pending ones)
 
-There is no approval, rejection, direct-save, or filesystem-write tool. Tool
+There is no approval, direct-save, or filesystem-write tool. Acceptance stays
+human-only. An agent can decline (withdraw) only proposals it submitted itself;
+they are recorded with status `withdrawn` and the agent as decider. Tool
 annotations describe side effects but are not permission enforcement.
-`propose_canvas_change` is correctly marked as a write to the proposal ledger.
+`propose_canvas_change` and `withdraw_canvas_proposal` are correctly marked as
+writes to the proposal ledger.
 The host must authorize which canvas each agent can access before constructing
 its capability object.
 

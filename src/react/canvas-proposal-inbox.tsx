@@ -7,6 +7,7 @@ import {
   type CanvasBounds,
   type CanvasProposal,
   type CanvasProposalChange,
+  type CanvasProposalConflict,
   type CanvasProposalReview,
   type CanvasReviewDecision,
 } from "../core/index.js";
@@ -368,49 +369,86 @@ function FocusedPreview({
   );
 }
 
+function conflictText(
+  conflict: CanvasProposalConflict,
+  review: CanvasProposalReview,
+  labels: SchemaCanvasLabels,
+) {
+  const title = titleFor(
+    {
+      index: conflict.index,
+      operation: review.proposal.operations[conflict.index]?.op ?? "move_table",
+      objectId: conflict.objectId,
+      before: null,
+      after: null,
+    },
+    review,
+  );
+  const field: Record<string, string> = {
+    markdown: labels.reviewDocumentation,
+    position: labels.reviewPosition,
+    appearance: labels.appearance,
+    label: labels.label,
+    color: labels.color,
+    hidden: labels.hidden,
+    muted: labels.edgeTone,
+    route: labels.route,
+  };
+  return `${title}: ${field[conflict.field] ?? conflict.field}`;
+}
+
 function ProposalCard({
   proposal,
   controls,
   labels,
   hasUnsavedChanges,
+  documentVersion,
   loadReview,
   onNavigate,
-  onDecided,
-  deciding,
-  setDeciding,
+  onDecide,
+  failure,
 }: {
   proposal: CanvasProposal;
   controls: CanvasProposalReviewControls;
   labels: SchemaCanvasLabels;
   hasUnsavedChanges: boolean;
+  documentVersion: string;
   loadReview: (
     proposal: CanvasProposal,
-    revision: string,
+    version: string,
     refresh?: boolean,
   ) => Promise<CanvasProposalReview>;
   onNavigate?: (location: CanvasProposalLocation) => void;
-  onDecided: (id: string) => void;
-  deciding: boolean;
-  setDeciding: (value: boolean) => void;
+  onDecide: (
+    proposal: CanvasProposal,
+    decision: CanvasReviewDecision,
+    accept: boolean,
+  ) => void;
+  failure?: string;
 }) {
   const [review, setReview] = useState<CanvasProposalReview>();
-  const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-  const [working, setWorking] = useState(false);
-  const latest = useRef({ controls, proposal });
-  latest.current = { controls, proposal };
+  const [error, setError] = useState(failure ?? "");
+  // After a failed decision, fetch a fresh review instead of a cached one.
+  const [attempt, setAttempt] = useState(failure ? 1 : 0);
+  const latest = useRef({ proposal });
+  latest.current = { proposal };
   const fingerprint = proposalKey(proposal);
+  const version = `${controls.revision}|${documentVersion}`;
+  useEffect(() => {
+    // A new suggestion starts empty; a refresh keeps the current review visible.
+    setReview((current) =>
+      current && proposalKey(current.proposal) === fingerprint
+        ? current
+        : undefined,
+    );
+  }, [fingerprint]);
   useEffect(() => {
     let cancelled = false;
-    setReview(undefined);
-    setError("");
-    void loadReview(
-      latest.current.proposal,
-      controls.revision,
-      attempt > 0,
-    ).then(
+    void loadReview(latest.current.proposal, version, attempt > 0).then(
       (value) => {
-        if (!cancelled) setReview(value);
+        if (cancelled) return;
+        setReview(value);
+        setError((current) => (current === failure ? current : ""));
       },
       (cause: unknown) => {
         if (!cancelled)
@@ -420,43 +458,22 @@ function ProposalCard({
     return () => {
       cancelled = true;
     };
-  }, [fingerprint, loadReview, attempt, controls.revision]);
+  }, [fingerprint, loadReview, attempt, version, failure]);
   const exact = review && proposalKey(review.proposal) === fingerprint;
-  const stale =
-    !!review && (review.stale || review.currentRevision !== controls.revision);
-  const decide = async (accept: boolean) => {
-    if (
-      !exact ||
-      !review ||
-      deciding ||
-      working ||
-      hasUnsavedChanges ||
-      (accept && stale)
-    )
-      return;
-    setDeciding(true);
-    setWorking(true);
-    setError("");
-    try {
-      const decision = {
-        proposalId: proposal.id,
-        reviewToken: review.reviewToken,
-      };
-      if (accept) await latest.current.controls.onAccept(decision);
-      else await latest.current.controls.onReject(decision);
-      onDecided(proposal.id);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setWorking(false);
-      setDeciding(false);
-    }
+  // The service decides staleness per edited field. Unrelated saves never block.
+  const stale = !!review?.stale;
+  const decide = (accept: boolean) => {
+    if (!exact || !review || hasUnsavedChanges || (accept && stale)) return;
+    onDecide(
+      proposal,
+      { proposalId: proposal.id, reviewToken: review.reviewToken },
+      accept,
+    );
   };
   return (
     <article
       className="schema-canvas__proposal-card"
       aria-label={proposal.title}
-      aria-busy={working}
     >
       <h3>{proposal.title}</h3>
       <p className="schema-canvas__proposal-author">
@@ -482,6 +499,11 @@ function ProposalCard({
                   </button>
                 ) : null}
               </header>
+              {change.merged ? (
+                <p className="schema-canvas__proposal-merged" role="note">
+                  {labels.reviewMerged}
+                </p>
+              ) : null}
               <ChangeDetails change={change} labels={labels} />
               {change.operation !== "move_table" ? (
                 <FocusedPreview
@@ -500,17 +522,25 @@ function ProposalCard({
         <summary>{labels.reviewReason}</summary>
         <CanvasMarkdown source={proposal.reason} />
       </details>
-      {stale ? (
-        <p className="schema-canvas__proposal-warning" role="alert">
-          {labels.staleProposal}
-        </p>
+      {stale && review ? (
+        <div className="schema-canvas__proposal-warning" role="alert">
+          <p>{labels.staleProposal}</p>
+          {review.conflicts?.length ? (
+            <ul>
+              {review.conflicts.map((conflict) => (
+                <li key={`${conflict.index}:${conflict.field}`}>
+                  {conflictText(conflict, review, labels)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {error ? (
         <div className="schema-canvas__proposal-error" role="alert">
           <p>{error}</p>
           <button
             type="button"
-            disabled={deciding}
             onClick={() => setAttempt((value) => value + 1)}
           >
             {labels.reviewRetry}
@@ -520,40 +550,53 @@ function ProposalCard({
       <footer>
         <button
           type="button"
-          disabled={!exact || deciding || hasUnsavedChanges}
-          onClick={() => void decide(false)}
+          disabled={!exact || hasUnsavedChanges}
+          onClick={() => decide(false)}
         >
           {labels.rejectSuggestion}
         </button>
         <button
           className="schema-canvas__accept-proposal"
           type="button"
-          disabled={!exact || deciding || stale || hasUnsavedChanges}
-          onClick={() => void decide(true)}
+          disabled={!exact || stale || hasUnsavedChanges}
+          onClick={() => decide(true)}
         >
-          {working ? labels.reviewWorking : labels.applyReviewedChanges}
+          {labels.applyReviewedChanges}
         </button>
       </footer>
     </article>
   );
 }
 
+type SavingDecision = { proposal: CanvasProposal; accept: boolean };
+
 export function CanvasProposalInbox({
   controls,
   labels,
   hasUnsavedChanges,
+  documentVersion = "",
   onNavigate,
 }: {
   controls: CanvasProposalReviewControls;
   labels: SchemaCanvasLabels;
   hasUnsavedChanges: boolean;
+  /** Changes whenever the canvas saved its own edits, so open reviews refresh. */
+  documentVersion?: string;
   onNavigate?: (location: CanvasProposalLocation) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [decided, setDecided] = useState<Set<string>>(() => new Set());
-  const [deciding, setDeciding] = useState(false);
+  // Decisions are optimistic: the card leaves at once and the save runs in the
+  // background, one at a time, so the canvas and other cards stay usable.
+  const [saving, setSaving] = useState<ReadonlyMap<string, SavingDecision>>(
+    () => new Map(),
+  );
+  const [decided, setDecided] = useState<ReadonlySet<string>>(() => new Set());
+  const [failures, setFailures] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  );
+  const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = controls.proposals.filter(
-    (p) => p.status === "pending" && !decided.has(p.id),
+    (p) => p.status === "pending" && !decided.has(p.id) && !saving.has(p.id),
   );
   const listId = useId();
   const panel = useRef<HTMLElement>(null);
@@ -561,10 +604,10 @@ export function CanvasProposalInbox({
   latest.current = controls;
   const requests = useRef(new Map<string, Promise<CanvasProposalReview>>());
   const loadReview = useCallback(
-    (proposal: CanvasProposal, revision: string, refresh = false) => {
+    (proposal: CanvasProposal, version: string, refresh = false) => {
       const key = canonicalCanvasJson({
         proposal: proposalKey(proposal),
-        revision,
+        version,
       });
       let request = requests.current.get(key);
       if (!request || refresh) {
@@ -594,14 +637,53 @@ export function CanvasProposalInbox({
         .map((proposal) =>
           canonicalCanvasJson({
             proposal: proposalKey(proposal),
-            revision: controls.revision,
+            version: `${controls.revision}|${documentVersion}`,
           }),
         ),
     );
     for (const key of requests.current.keys())
       if (!active.has(key)) requests.current.delete(key);
-  }, [controls.proposals, controls.revision]);
-  if (!pending.length) return null;
+  }, [controls.proposals, controls.revision, documentVersion]);
+  const onDecide = useCallback(
+    (
+      proposal: CanvasProposal,
+      decision: CanvasReviewDecision,
+      accept: boolean,
+    ) => {
+      setFailures((current) => {
+        const next = new Map(current);
+        next.delete(proposal.id);
+        return next;
+      });
+      setSaving((current) =>
+        new Map(current).set(proposal.id, { proposal, accept }),
+      );
+      const run = async () => {
+        try {
+          if (accept) await latest.current.onAccept(decision);
+          else await latest.current.onReject(decision);
+          setDecided((current) => new Set(current).add(proposal.id));
+        } catch (cause) {
+          setFailures((current) =>
+            new Map(current).set(
+              proposal.id,
+              cause instanceof Error ? cause.message : String(cause),
+            ),
+          );
+        } finally {
+          setSaving((current) => {
+            const next = new Map(current);
+            next.delete(proposal.id);
+            return next;
+          });
+        }
+      };
+      queue.current = queue.current.then(run, run);
+    },
+    [],
+  );
+  if (!pending.length && !saving.size) return null;
+  const savingTitles = [...saving.values()];
   return (
     <aside
       ref={panel}
@@ -626,6 +708,15 @@ export function CanvasProposalInbox({
         </span>
         <span aria-hidden="true">{collapsed ? "+" : "−"}</span>
       </button>
+      {savingTitles.length ? (
+        <p className="schema-canvas__proposal-saving" role="status">
+          {savingTitles[0]!.accept
+            ? labels.savingAcceptance
+            : labels.savingDecline}{" "}
+          “{savingTitles[0]!.proposal.title}”
+          {savingTitles.length > 1 ? ` +${savingTitles.length - 1}` : ""}
+        </p>
+      ) : null}
       <div
         className="schema-canvas__proposal-inbox-list"
         id={listId}
@@ -640,17 +731,17 @@ export function CanvasProposalInbox({
             ) : null}
             {pending.map((proposal) => (
               <ProposalCard
-                key={proposal.id}
+                key={`${proposal.id}:${failures.get(proposal.id) ?? ""}`}
                 proposal={proposal}
                 controls={controls}
                 labels={labels}
                 hasUnsavedChanges={hasUnsavedChanges}
+                documentVersion={documentVersion}
                 loadReview={loadReview}
-                deciding={deciding}
-                setDeciding={setDeciding}
-                onDecided={(id) =>
-                  setDecided((current) => new Set([...current, id]))
-                }
+                onDecide={onDecide}
+                {...(failures.has(proposal.id)
+                  ? { failure: failures.get(proposal.id)! }
+                  : {})}
                 {...(onNavigate
                   ? {
                       onNavigate: (location: CanvasProposalLocation) => {
