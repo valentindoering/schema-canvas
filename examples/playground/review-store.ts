@@ -11,9 +11,16 @@ export function createPlaygroundReviewStore(
   initial: CanvasReviewState,
   onCommit: (state: CanvasReviewState) => void,
   storageKey = reviewKey,
+  /** Simulated host round trip per read or write, e.g. `?latency=600`. */
+  latencyMs = 0,
 ): CanvasReviewStore {
   let tail = Promise.resolve();
+  const delay = () =>
+    latencyMs > 0
+      ? new Promise((resolve) => setTimeout(resolve, latencyMs))
+      : Promise.resolve();
   const read = async () => {
+    await delay();
     const stored = localStorage.getItem(storageKey);
     return parseCanvasReviewState(
       stored ? JSON.parse(stored) : structuredClone(initial),

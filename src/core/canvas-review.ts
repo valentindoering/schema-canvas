@@ -1,7 +1,6 @@
 import {
   canvasDigest,
   canvasKeys,
-  canonicalCanvasJson,
   canvasSnapshot,
   canvasText,
   parseCanvasDocument,
@@ -17,6 +16,7 @@ import {
 import {
   parseCanvasProposalInput,
   previewCanvasProposal,
+  rebaseCanvasProposal,
   type CanvasProposal,
   type CanvasProposalInput,
   type CanvasProposalReview,
@@ -24,11 +24,15 @@ import {
 import { assertRecord } from "./shared.js";
 
 export type StoredCanvasProposal = CanvasProposal & {
-  baseDocument: CanvasDocument;
+  /** Present while pending. Dropped once decided to keep the ledger small. */
+  baseDocument?: CanvasDocument;
   review?: {
     token: string;
     reviewerId: string;
+    /** Digest of the proposal as submitted. */
     digest: string;
+    /** Digest of the exact operations shown to the reviewer after merging. */
+    resultDigest?: string;
     expiresAt: number;
   };
 };
@@ -57,51 +61,29 @@ export class CanvasRevisionConflictError extends Error {
   }
 }
 
-/** Conservative object-level preconditions allow independent suggestions to coexist.
- * Graph/view changes invalidate every proposal; saves still use the full revision.
- */
-function proposalConflicts(
-  document: CanvasDocument,
-  proposal: StoredCanvasProposal,
-): boolean {
-  const base = proposal.baseDocument;
-  const equal = (a: unknown, b: unknown) =>
-    canonicalCanvasJson(a ?? null) === canonicalCanvasJson(b ?? null);
-  if (!equal(document.graph, base.graph) || !equal(document.views, base.views))
-    return true;
-  const tableIds = new Set<string>();
-  const annotationIds = new Set<string>();
-  for (const operation of proposal.operations) {
-    if ("tableId" in operation) tableIds.add(operation.tableId);
-    else if (operation.op === "update_edge") {
-      const edge = base.graph.edges.find(
-        (edge) => edge.id === operation.edgeId,
-      );
-      if (!edge) return true;
-      tableIds.add(edge.source);
-    } else
-      annotationIds.add(
-        operation.op === "add_annotation"
-          ? operation.annotation.id
-          : operation.annotationId,
-      );
-  }
-  for (const id of tableIds) {
-    const before = Object.hasOwn(base.layout, id) ? base.layout[id] : null;
-    const current = Object.hasOwn(document.layout, id)
-      ? document.layout[id]
-      : null;
-    if (!equal(before, current)) return true;
-  }
-  for (const id of annotationIds)
-    if (
-      !equal(
-        base.annotations.find((annotation) => annotation.id === id),
-        document.annotations.find((annotation) => annotation.id === id),
-      )
-    )
-      return true;
-  return false;
+/** Decided proposals keep their audit record, not their multi-megabyte baseline. */
+function compact(state: CanvasReviewState): CanvasReviewState {
+  return {
+    ...state,
+    proposals: state.proposals.map((proposal) => {
+      if (proposal.status === "pending" || !proposal.baseDocument)
+        return proposal;
+      const { baseDocument: _baseDocument, ...decided } = proposal;
+      return decided;
+    }),
+  };
+}
+function baseline(proposal: StoredCanvasProposal): CanvasDocument {
+  if (!proposal.baseDocument)
+    throw new Error("A pending proposal needs its baseline document.");
+  return proposal.baseDocument;
+}
+function assess(document: CanvasDocument, proposal: StoredCanvasProposal) {
+  return rebaseCanvasProposal(
+    baseline(proposal),
+    document,
+    proposal.operations,
+  );
 }
 
 export function parseCanvasReviewState(candidate: unknown): CanvasReviewState {
@@ -145,7 +127,9 @@ export function parseCanvasReviewState(candidate: unknown): CanvasReviewState {
     if (ids.has(raw.id as string)) throw new Error("Duplicate proposal id.");
     ids.add(raw.id as string);
     if (
-      !["pending", "accepted", "rejected"].includes(raw.status as string) ||
+      !["pending", "accepted", "rejected", "withdrawn"].includes(
+        raw.status as string,
+      ) ||
       !Number.isFinite(Date.parse(raw.createdAt as string))
     )
       throw new Error("Invalid proposal status or timestamp.");
@@ -153,11 +137,13 @@ export function parseCanvasReviewState(candidate: unknown): CanvasReviewState {
       assertRecord(raw.review, "Invalid review receipt.");
       canvasKeys(
         raw.review,
-        ["token", "reviewerId", "digest", "expiresAt"],
+        ["token", "reviewerId", "digest", "resultDigest", "expiresAt"],
         "Review receipt",
       );
       for (const key of ["token", "reviewerId", "digest"])
         canvasText(raw.review[key], key, 500);
+      if (raw.review.resultDigest !== undefined)
+        canvasText(raw.review.resultDigest, "resultDigest", 500);
       if (
         typeof raw.review.expiresAt !== "number" ||
         !Number.isFinite(raw.review.expiresAt)
@@ -180,12 +166,15 @@ export function parseCanvasReviewState(candidate: unknown): CanvasReviewState {
         throw new Error("Invalid decided proposal audit record.");
     } else if (raw.decision !== undefined)
       throw new Error("Pending proposal cannot have a decision.");
-    const baseDocument = parseCanvasDocument(raw.baseDocument);
-    return {
+    if (raw.status === "pending" && raw.baseDocument === undefined)
+      throw new Error("A pending proposal needs its baseline document.");
+    const stored = {
       ...structuredClone(raw),
       ...input,
-      baseDocument,
     } as StoredCanvasProposal;
+    if (raw.baseDocument !== undefined)
+      stored.baseDocument = parseCanvasDocument(raw.baseDocument);
+    return stored;
   });
   return { version: 1, document, proposals };
 }
@@ -216,6 +205,15 @@ export function createCanvasReviewService<ReviewContext>(options: {
   if (!Number.isFinite(lifetime) || lifetime <= 0 || lifetime > 60 * 60_000)
     throw new Error("Review lifetime must be from 1 millisecond to one hour.");
   const read = async () => parseCanvasReviewState(await options.store.read());
+  const transact = <T>(
+    operation: (
+      state: CanvasReviewState,
+    ) => Promise<{ state: CanvasReviewState; result: T }>,
+  ) =>
+    options.store.transact(async (raw) => {
+      const { state, result } = await operation(parseCanvasReviewState(raw));
+      return { state: compact(state), result };
+    });
   const identity = async (context: ReviewContext) => {
     const result = await options.authorizeReview(context);
     if (!result) throw new Error("Human review authorization is required.");
@@ -228,6 +226,40 @@ export function createCanvasReviewService<ReviewContext>(options: {
       throw new Error("The proposal is missing or has already been decided.");
     return proposal;
   };
+  const verifyBaseline = async (proposal: StoredCanvasProposal) => {
+    if ((await canvasDigest(baseline(proposal))) !== proposal.baseRevision)
+      throw new Error("Proposal baseline does not match its revision.");
+  };
+  /** Everything a reviewer sees, computed without writing. */
+  async function prepareReview(
+    state: CanvasReviewState,
+    proposal: StoredCanvasProposal,
+  ) {
+    await verifyBaseline(proposal);
+    const snapshot = await canvasSnapshot(state.document);
+    const rebase = assess(snapshot.document, proposal);
+    const stale = rebase.conflicts.length > 0;
+    const before = stale ? baseline(proposal) : snapshot.document;
+    const preview = previewCanvasProposal(before, {
+      ...proposal,
+      operations: stale ? proposal.operations : rebase.operations,
+    });
+    const merged = new Set(stale ? [] : rebase.merged);
+    return {
+      snapshot,
+      stale,
+      conflicts: rebase.conflicts,
+      before,
+      after: preview.document,
+      changes: preview.changes.map((change) =>
+        merged.has(change.index)
+          ? { ...change, merged: true as const }
+          : change,
+      ),
+      digest: await canvasDigest(publicCanvasProposal(proposal)),
+      resultDigest: await canvasDigest(rebase.operations),
+    };
+  }
   async function decide(
     input: CanvasReviewDecision,
     context: ReviewContext,
@@ -236,8 +268,7 @@ export function createCanvasReviewService<ReviewContext>(options: {
     const who = await identity(context);
     canvasText(input.proposalId, "Proposal id", 500);
     canvasText(input.reviewToken, "Review token", 500);
-    return options.store.transact(async (raw) => {
-      const state = parseCanvasReviewState(raw);
+    return transact(async (state) => {
       const proposal = pending(state, input.proposalId);
       const receipt = proposal.review;
       if (
@@ -250,14 +281,21 @@ export function createCanvasReviewService<ReviewContext>(options: {
         throw new Error(
           "Open this exact proposal in the canvas before confirming it. The review may have expired.",
         );
-      const snapshot = await canvasSnapshot(state.document);
-      if ((await canvasDigest(proposal.baseDocument)) !== proposal.baseRevision)
-        throw new Error("Proposal baseline does not match its revision.");
-      if (accept && proposalConflicts(snapshot.document, proposal))
-        throw new CanvasRevisionConflictError();
-      const document = accept
-        ? previewCanvasProposal(state.document, proposal).document
-        : state.document;
+      await verifyBaseline(proposal);
+      let document = state.document;
+      if (accept) {
+        const rebase = assess(state.document, proposal);
+        if (rebase.conflicts.length) throw new CanvasRevisionConflictError();
+        // A merge depends on the live text. Apply only the exact result the human saw.
+        if (receipt.resultDigest !== (await canvasDigest(rebase.operations)))
+          throw new Error(
+            "The suggestion was merged with newer edits. Review the updated result before confirming it.",
+          );
+        document = previewCanvasProposal(state.document, {
+          ...proposal,
+          operations: rebase.operations,
+        }).document;
+      }
       const revision = await canvasDigest(document);
       proposal.status = accept ? "accepted" : "rejected";
       proposal.decision = {
@@ -296,8 +334,7 @@ export function createCanvasReviewService<ReviewContext>(options: {
         },
         async propose(candidate: CanvasProposalInput) {
           const input = parseCanvasProposalInput(candidate);
-          return options.store.transact(async (raw) => {
-            const state = parseCanvasReviewState(raw);
+          return transact(async (state) => {
             if (state.proposals.length >= 1000)
               throw new Error(
                 "The proposal ledger is full. The host must archive decided proposals.",
@@ -327,8 +364,42 @@ export function createCanvasReviewService<ReviewContext>(options: {
             ...publicCanvasProposal(proposal),
             stale:
               proposal.status === "pending" &&
-              proposalConflicts(state.document, proposal),
+              assess(state.document, proposal).conflicts.length > 0,
           };
+        },
+        /** This agent's own proposals, newest first. */
+        async listProposals(status?: CanvasProposal["status"]) {
+          const state = await read();
+          return state.proposals
+            .filter(
+              (p) => p.actorId === actorId && (!status || p.status === status),
+            )
+            .reverse()
+            .map((proposal) => ({
+              ...publicCanvasProposal(proposal),
+              stale:
+                proposal.status === "pending" &&
+                assess(state.document, proposal).conflicts.length > 0,
+            }));
+        },
+        /** Decline one of this agent's own pending proposals, e.g. after it became obsolete. Never applies anything. */
+        async withdraw(id: string) {
+          canvasText(id, "Proposal id", 500);
+          return transact(async (state) => {
+            const proposal = pending(state, id);
+            if (proposal.actorId !== actorId)
+              throw new Error(
+                "An agent may only withdraw its own pending proposals.",
+              );
+            proposal.status = "withdrawn";
+            proposal.decision = {
+              reviewerId: actorId,
+              at: new Date(now()).toISOString(),
+              revision: await canvasDigest(state.document),
+            };
+            delete proposal.review;
+            return { state, result: publicCanvasProposal(proposal) };
+          });
         },
       };
     },
@@ -345,8 +416,7 @@ export function createCanvasReviewService<ReviewContext>(options: {
     ) {
       await identity(context);
       const next = parseCanvasDocument(document);
-      return options.store.transact(async (raw) => {
-        const state = parseCanvasReviewState(raw);
+      return transact(async (state) => {
         if ((await canvasDigest(state.document)) !== expectedRevision)
           throw new CanvasRevisionConflictError();
         return {
@@ -360,48 +430,61 @@ export function createCanvasReviewService<ReviewContext>(options: {
       context: ReviewContext,
     ): Promise<CanvasProposalReview> {
       const who = await identity(context);
-      return options.store.transact(async (raw) => {
-        const state = parseCanvasReviewState(raw);
+      const reusable = (
+        proposal: StoredCanvasProposal,
+        review: Awaited<ReturnType<typeof prepareReview>>,
+      ) => {
+        const existing = proposal.review;
+        return (
+          !!existing &&
+          existing.reviewerId === who.reviewerId &&
+          existing.digest === review.digest &&
+          existing.resultDigest === review.resultDigest &&
+          existing.expiresAt > now()
+        );
+      };
+      const result = (
+        proposal: StoredCanvasProposal,
+        review: Awaited<ReturnType<typeof prepareReview>>,
+      ): CanvasProposalReview => ({
+        proposal: publicCanvasProposal(proposal),
+        reviewToken: proposal.review!.token,
+        baseRevision: proposal.baseRevision,
+        currentRevision: review.snapshot.revision,
+        stale: review.stale,
+        conflicts: review.conflicts,
+        before: structuredClone(review.before),
+        after: review.after,
+        changes: review.changes,
+      });
+      // An always-visible inbox reopens every card after each change. A still-valid
+      // receipt for this reviewer and this exact result needs no write.
+      const state = await read();
+      const proposal = pending(state, id);
+      const review = await prepareReview(state, proposal);
+      if (reusable(proposal, review)) return result(proposal, review);
+      return transact(async (state) => {
         const proposal = pending(state, id);
-        const snapshot = await canvasSnapshot(state.document);
-        if (
-          (await canvasDigest(proposal.baseDocument)) !== proposal.baseRevision
-        )
-          throw new Error("Proposal baseline does not match its revision.");
-        const stale = proposalConflicts(snapshot.document, proposal);
-        const before = stale ? proposal.baseDocument : snapshot.document;
-        const preview = previewCanvasProposal(before, proposal);
-        const digest = await canvasDigest(publicCanvasProposal(proposal));
-        // An always-visible inbox may display the same proposal in several tabs.
-        // Reuse a valid receipt for this reviewer instead of invalidating those tabs.
+        const review = await prepareReview(state, proposal);
+        // Several tabs may show the same proposal. Reuse a valid receipt for this
+        // reviewer instead of invalidating those tabs.
         const existing = proposal.review;
         if (
           !existing ||
           existing.reviewerId !== who.reviewerId ||
-          existing.digest !== digest ||
+          existing.digest !== review.digest ||
           existing.expiresAt <= now()
-        ) {
+        )
           proposal.review = {
             token: crypto.randomUUID(),
             reviewerId: who.reviewerId,
-            digest,
+            digest: review.digest,
+            resultDigest: review.resultDigest,
             expiresAt: now() + lifetime,
           };
-        }
-        const token = proposal.review!.token;
-        return {
-          state,
-          result: {
-            proposal: publicCanvasProposal(proposal),
-            reviewToken: token,
-            baseRevision: proposal.baseRevision,
-            currentRevision: snapshot.revision,
-            stale,
-            before: structuredClone(before),
-            after: preview.document,
-            changes: preview.changes,
-          },
-        };
+        else
+          proposal.review = { ...existing, resultDigest: review.resultDigest };
+        return { state, result: result(proposal, review) };
       });
     },
     accept: (input: CanvasReviewDecision, context: ReviewContext) =>

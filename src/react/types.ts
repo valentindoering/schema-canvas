@@ -151,6 +151,10 @@ export type SchemaCanvasLabels = {
   rejectSuggestion: string;
   applyReviewedChanges: string;
   reviewWorking: string;
+  /** Shown on a change whose Markdown was combined with newer human edits. */
+  reviewMerged: string;
+  savingDecline: string;
+  savingAcceptance: string;
   noPendingSuggestions: string;
   reviewDocumentation: string;
   reviewKind: string;
@@ -378,7 +382,7 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   backToSuggestions: "All suggestions",
   proposedBy: "Proposed by",
   staleProposal:
-    "The canvas has changed in an object this suggestion edits. Decline it or ask for a new suggestion.",
+    "Since this suggestion, someone edited the same field. Decline it or ask for a new suggestion.",
   reviewPreview: "Preview",
   reviewChanges: "Changes",
   reviewCanvas: "Canvas",
@@ -388,6 +392,10 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   rejectSuggestion: "Decline",
   applyReviewedChanges: "Accept",
   reviewWorking: "Working…",
+  reviewMerged:
+    "Combined with edits made after this suggestion. Your lines are kept; the diff shows only the suggested change.",
+  savingDecline: "Declining",
+  savingAcceptance: "Applying",
   noPendingSuggestions: "No suggestions awaiting review.",
   reviewDocumentation: "Documentation",
   reviewKind: "Type",

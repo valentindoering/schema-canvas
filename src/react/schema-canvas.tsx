@@ -1413,6 +1413,7 @@ function SchemaCanvasInner({
           controls={proposalReview}
           labels={labels}
           hasUnsavedChanges={handle.getSaveState().dirty}
+          documentVersion={`${layoutQueue.getRevision() ?? ""}|${annotationQueue.getRevision() ?? ""}`}
           onNavigate={(location) => {
             const matchingView =
               views.find(

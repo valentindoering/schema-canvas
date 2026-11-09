@@ -30,6 +30,10 @@ import {
 import { largeDocument, largeSourceFileForTable } from "./large-schema.js";
 
 const isLarge = new URLSearchParams(location.search).get("example") === "large";
+const latencyMs = Math.min(
+  5000,
+  Number(new URLSearchParams(location.search).get("latency")) || 0,
+);
 const storagePrefix = isLarge
   ? "schema-canvas-large-example"
   : "schema-canvas-example";
@@ -92,6 +96,7 @@ function Playground() {
         );
       },
       reviewKey,
+      latencyMs,
     ),
   );
   const reviewService = useMemo(
@@ -142,6 +147,35 @@ function Playground() {
     setDemoError("");
     try {
       const agent = reviewService.agent("example assistant");
+      const note = reviewState.document.annotations.find(
+        (annotation) => annotation.id === "model-note",
+      );
+      // Every third example edits one line of a note, to show how a suggestion
+      // merges with human edits made to other lines of the same note.
+      if (
+        note?.markdown !== undefined &&
+        reviewState.proposals.length % 3 === 2
+      ) {
+        const context = await agent.getContext({ annotationIds: [note.id] });
+        await agent.propose({
+          baseRevision: context.revision,
+          title: "Name the cargo table in the reading note",
+          reason: "Use the real table names so readers can find the tables.",
+          operations: [
+            {
+              op: "update_annotation",
+              annotationId: note.id,
+              changes: {
+                markdown: note.markdown.replace(
+                  "Crew assignments and cargo stay separate",
+                  "`voyage_crew` rows and `cargo_crates` rows stay separate",
+                ),
+              },
+            },
+          ],
+        });
+        return;
+      }
       const alternate = reviewState.proposals.length % 2 === 1;
       const context = await agent.getContext(
         alternate

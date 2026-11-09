@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- Decide suggestion staleness per field. An operation is blocked only when the
+  field it writes changed since the suggestion (or its target is gone). Moving a
+  table, edits elsewhere on the board, table renames and view changes no longer
+  block. Markdown edited by both sides is merged line by line when the edits do
+  not overlap; merged changes are marked, and acceptance is bound to the exact
+  merged result. Blocked cards list the conflicting fields.
+- Make decisions optimistic: a card leaves at once and decisions save one at a
+  time in the background, so the canvas and other cards stay usable. A failed
+  decision returns its card with the error. Open reviews refresh quietly after
+  canvas saves instead of flagging every save as stale.
+- Reopening a review with a valid receipt no longer writes the ledger, and
+  decided proposals drop their baseline document (about 1 MB each on a
+  200-table schema). In a measured large-schema ledger this halved the time of
+  each review call.
+- Let an agent list its own proposals and withdraw its own pending ones
+  (`withdrawn` status, MCP `list_canvas_proposals` and
+  `withdraw_canvas_proposal`). Acceptance stays human-only.
+- Teach proposing agents the rules through `canvasAgentPolicy`, the MCP tool
+  descriptions and the README: one proposal per table note or annotation, real
+  table names, withdraw obsolete proposals.
+- Tab and Shift+Tab indent and outdent list items in the Markdown editor and no
+  longer move focus out of a list.
+- Center the expanded Markdown editor even when the host resets dialog margins
+  (for example Tailwind's preflight).
+
+Stored ledgers need no migration: existing files load unchanged, and decided
+proposals lose their baseline on the next write. `StoredCanvasProposal.baseDocument`
+is now optional, `CanvasProposal.status` adds `"withdrawn"`, and reviews add an
+optional `conflicts` list.
+
 ## 0.4.0
 
 - Show source and target tables in arrow details, with direct canvas navigation.

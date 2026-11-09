@@ -1275,7 +1275,13 @@
 }
 
 .schema-canvas__markdown-dialog {
+  /* Center explicitly: host resets such as Tailwind's preflight set margin: 0,
+     which removes the browser's default centering of a modal dialog. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
   width: min(900px, calc(100vw - 32px));
+  height: fit-content;
   max-height: calc(100vh - 32px);
   overflow: auto;
   padding: 16px;
@@ -2258,6 +2264,28 @@
 }
 .schema-canvas__proposal-error p {
   margin: 0 0 6px;
+}
+.schema-canvas__proposal-warning p {
+  margin: 0;
+}
+.schema-canvas__proposal-warning ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.schema-canvas__proposal-merged {
+  margin: 4px 0;
+  color: var(--schema-canvas-text-muted);
+  font-size: 11px;
+}
+.schema-canvas__proposal-saving {
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--schema-canvas-border);
+  color: var(--schema-canvas-text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .schema-canvas__proposal-delete {
   color: var(--schema-canvas-danger);

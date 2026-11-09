@@ -298,7 +298,12 @@ test("rejection preserves documentation and stale suggestions cannot be applied"
     name: "Suggestions",
     exact: true,
   });
-  await expect(panel.getByRole("alert")).toContainText("canvas has changed");
+  await expect(panel.getByRole("alert")).toContainText(
+    "someone edited the same field",
+  );
+  await expect(panel.getByRole("alert")).toContainText(
+    "Voyages: Documentation",
+  );
   await expect(
     panel.getByRole("button", { name: "Accept", exact: true }),
   ).toBeDisabled();

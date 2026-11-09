@@ -106,8 +106,14 @@ describe("durable review storage and MCP", () => {
         "find_canvas_tables",
         "get_canvas_context",
         "get_canvas_proposal",
+        "list_canvas_proposals",
         "propose_canvas_change",
+        "withdraw_canvas_proposal",
       ]);
+      for (const name of ["get_canvas_context", "propose_canvas_change"])
+        expect(
+          listed.tools.find((t) => t.name === name)?.description,
+        ).toContain("one change per table note or annotation");
       expect(
         listed.tools.find((t) => t.name === "propose_canvas_change")
           ?.annotations?.readOnlyHint,
@@ -167,6 +173,20 @@ describe("durable review storage and MCP", () => {
       });
       expect(bad.isError).toBe(true);
       expect(await service.listProposals()).toHaveLength(1);
+      const mine = await client.callTool({
+        name: "list_canvas_proposals",
+        arguments: { status: "pending" },
+      });
+      const id = (mine.structuredContent as { proposals: { id: string }[] })
+        .proposals[0]!.id;
+      const withdrawn = await client.callTool({
+        name: "withdraw_canvas_proposal",
+        arguments: { proposalId: id },
+      });
+      expect(withdrawn.structuredContent).toMatchObject({
+        proposal: { id, status: "withdrawn" },
+      });
+      expect((await service.readDocument()).document).toEqual(canvasDocument);
     } finally {
       await client.close();
       await server.close();
