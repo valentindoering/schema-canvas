@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - Decide suggestion staleness per field. An operation is blocked only when the
   field it writes changed since the suggestion (or its target is gone). Moving a
