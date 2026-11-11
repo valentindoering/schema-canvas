@@ -12,7 +12,7 @@ import {
   type CanvasReviewDecision,
 } from "../core/index.js";
 import { CanvasMarkdown } from "./markdown.js";
-import { diffProposalText } from "./proposal-diff.js";
+import { diffProposalText, proposalWordChanges } from "./proposal-diff.js";
 import type { SchemaCanvasLabels } from "./types.js";
 
 export type CanvasProposalReviewControls = {
@@ -24,6 +24,12 @@ export type CanvasProposalReviewControls = {
   /** These callbacks must invoke authenticated HUMAN endpoints, never agent tools. */
   onAccept: (decision: CanvasReviewDecision) => Promise<void>;
   onReject: (decision: CanvasReviewDecision) => Promise<void>;
+  /**
+   * Optional. Offers "Ask to rebase" on a stale suggestion: the host records the
+   * request (`requestRebase` of the review service) so the proposing agent
+   * proposes again on the current text.
+   */
+  onRequestRebase?: (decision: CanvasReviewDecision) => Promise<void>;
 };
 export type CanvasProposalLocation = {
   tableIds: string[];
@@ -131,6 +137,7 @@ function UnifiedDiff({
   labels: SchemaCanvasLabels;
 }) {
   const lines = diffProposalText(before, after);
+  const words = proposalWordChanges(lines);
   const row = (line: (typeof lines)[number], index: number) => (
     <span
       className={`schema-canvas__diff-line schema-canvas__diff-line--${line.kind}`}
@@ -149,7 +156,21 @@ function UnifiedDiff({
       >
         {line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}
       </span>
-      <span>{line.text || " "}</span>
+      <span>
+        {words.has(index)
+          ? words
+              .get(index)!
+              .map((segment, part) =>
+                !segment.changed ? (
+                  segment.text
+                ) : line.kind === "added" ? (
+                  <ins key={part}>{segment.text}</ins>
+                ) : (
+                  <del key={part}>{segment.text}</del>
+                ),
+              )
+          : line.text || " "}
+      </span>
     </span>
   );
   const parts = [];
@@ -406,6 +427,8 @@ function ProposalCard({
   loadReview,
   onNavigate,
   onDecide,
+  onRequestRebase,
+  saving,
   failure,
 }: {
   proposal: CanvasProposal;
@@ -424,6 +447,9 @@ function ProposalCard({
     decision: CanvasReviewDecision,
     accept: boolean,
   ) => void;
+  onRequestRebase?: (decision: CanvasReviewDecision) => Promise<void>;
+  /** This card's decision is saving (or waiting for an earlier one to save). */
+  saving?: "accept" | "decline";
   failure?: string;
 }) {
   const [review, setReview] = useState<CanvasProposalReview>();
@@ -462,8 +488,34 @@ function ProposalCard({
   const exact = review && proposalKey(review.proposal) === fingerprint;
   // The service decides staleness per edited field. Unrelated saves never block.
   const stale = !!review?.stale;
+  const [rebasing, setRebasing] = useState(false);
+  const [rebaseRequested, setRebaseRequested] = useState(
+    !!proposal.rebaseRequest,
+  );
+  useEffect(() => {
+    if (proposal.rebaseRequest) setRebaseRequested(true);
+  }, [proposal.rebaseRequest]);
+  const busy = !!saving || rebasing;
+  const requestRebase = () => {
+    if (!exact || !review || !onRequestRebase || busy) return;
+    setRebasing(true);
+    onRequestRebase({
+      proposalId: proposal.id,
+      reviewToken: review.reviewToken,
+    }).then(
+      () => {
+        setRebasing(false);
+        setRebaseRequested(true);
+      },
+      (cause: unknown) => {
+        setRebasing(false);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      },
+    );
+  };
   const decide = (accept: boolean) => {
-    if (!exact || !review || hasUnsavedChanges || (accept && stale)) return;
+    if (!exact || !review || hasUnsavedChanges || busy || (accept && stale))
+      return;
     onDecide(
       proposal,
       { proposalId: proposal.id, reviewToken: review.reviewToken },
@@ -472,8 +524,9 @@ function ProposalCard({
   };
   return (
     <article
-      className="schema-canvas__proposal-card"
+      className={`schema-canvas__proposal-card${stale ? " schema-canvas__proposal-card--stale" : ""}`}
       aria-label={proposal.title}
+      aria-busy={busy}
     >
       <h3>{proposal.title}</h3>
       <p className="schema-canvas__proposal-author">
@@ -524,7 +577,9 @@ function ProposalCard({
       </details>
       {stale && review ? (
         <div className="schema-canvas__proposal-warning" role="alert">
-          <p>{labels.staleProposal}</p>
+          <p>
+            <strong>{labels.staleTitle}</strong> {labels.staleProposal}
+          </p>
           {review.conflicts?.length ? (
             <ul>
               {review.conflicts.map((conflict) => (
@@ -533,6 +588,21 @@ function ProposalCard({
                 </li>
               ))}
             </ul>
+          ) : null}
+          {rebaseRequested ? (
+            <p role="status">
+              {labels.rebaseRequested} {proposal.actorId}
+            </p>
+          ) : onRequestRebase ? (
+            <button
+              type="button"
+              disabled={!exact || busy}
+              aria-busy={rebasing}
+              onClick={requestRebase}
+            >
+              {rebasing ? <Spinner /> : null}
+              {labels.requestRebase}
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -548,24 +618,40 @@ function ProposalCard({
         </div>
       ) : null}
       <footer>
+        {saving ? (
+          <span className="schema-canvas__visually-hidden" role="status">
+            {saving === "accept"
+              ? labels.savingAcceptance
+              : labels.savingDecline}{" "}
+            “{proposal.title}”
+          </span>
+        ) : null}
         <button
           type="button"
-          disabled={!exact || hasUnsavedChanges}
+          disabled={!exact || hasUnsavedChanges || busy}
+          aria-busy={saving === "decline"}
           onClick={() => decide(false)}
         >
+          {saving === "decline" ? <Spinner /> : null}
           {labels.rejectSuggestion}
         </button>
         <button
           className="schema-canvas__accept-proposal"
           type="button"
-          disabled={!exact || stale || hasUnsavedChanges}
+          disabled={!exact || stale || hasUnsavedChanges || busy}
+          aria-busy={saving === "accept"}
           onClick={() => decide(true)}
         >
+          {saving === "accept" ? <Spinner /> : null}
           {labels.applyReviewedChanges}
         </button>
       </footer>
     </article>
   );
+}
+
+function Spinner() {
+  return <span className="schema-canvas__spinner" aria-hidden="true" />;
 }
 
 type SavingDecision = { proposal: CanvasProposal; accept: boolean };
@@ -585,8 +671,8 @@ export function CanvasProposalInbox({
   onNavigate?: (location: CanvasProposalLocation) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  // Decisions are optimistic: the card leaves at once and the save runs in the
-  // background, one at a time, so the canvas and other cards stay usable.
+  // A card stays, with a spinner on the clicked button, until its decision has
+  // saved. Decisions save one at a time; the canvas and other cards stay usable.
   const [saving, setSaving] = useState<ReadonlyMap<string, SavingDecision>>(
     () => new Map(),
   );
@@ -596,7 +682,7 @@ export function CanvasProposalInbox({
   );
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = controls.proposals.filter(
-    (p) => p.status === "pending" && !decided.has(p.id) && !saving.has(p.id),
+    (p) => p.status === "pending" && !decided.has(p.id),
   );
   const listId = useId();
   const panel = useRef<HTMLElement>(null);
@@ -682,8 +768,7 @@ export function CanvasProposalInbox({
     },
     [],
   );
-  if (!pending.length && !saving.size) return null;
-  const savingTitles = [...saving.values()];
+  if (!pending.length) return null;
   return (
     <aside
       ref={panel}
@@ -708,15 +793,6 @@ export function CanvasProposalInbox({
         </span>
         <span aria-hidden="true">{collapsed ? "+" : "−"}</span>
       </button>
-      {savingTitles.length ? (
-        <p className="schema-canvas__proposal-saving" role="status">
-          {savingTitles[0]!.accept
-            ? labels.savingAcceptance
-            : labels.savingDecline}{" "}
-          “{savingTitles[0]!.proposal.title}”
-          {savingTitles.length > 1 ? ` +${savingTitles.length - 1}` : ""}
-        </p>
-      ) : null}
       <div
         className="schema-canvas__proposal-inbox-list"
         id={listId}
@@ -739,6 +815,16 @@ export function CanvasProposalInbox({
                 documentVersion={documentVersion}
                 loadReview={loadReview}
                 onDecide={onDecide}
+                {...(controls.onRequestRebase
+                  ? { onRequestRebase: controls.onRequestRebase }
+                  : {})}
+                {...(saving.has(proposal.id)
+                  ? {
+                      saving: saving.get(proposal.id)!.accept
+                        ? ("accept" as const)
+                        : ("decline" as const),
+                    }
+                  : {})}
                 {...(failures.has(proposal.id)
                   ? { failure: failures.get(proposal.id)! }
                   : {})}

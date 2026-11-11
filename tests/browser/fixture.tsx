@@ -57,7 +57,22 @@ function Fixture() {
   const [annotations, setAnnotations] = useState<SchemaAnnotation[]>([]);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   return (
-    <main style={{ height: "100vh" }}>
+    <main
+      style={{ height: "100vh" }}
+      // Like the focus scopes of common dialog libraries: a React handler that
+      // moves focus on Tab without checking whether the key was handled.
+      onKeyDown={
+        new URLSearchParams(location.search).has("focusTrap")
+          ? (event) => {
+              if (event.key !== "Tab") return;
+              event.preventDefault();
+              document
+                .querySelector<HTMLElement>("[data-testid=mode]")
+                ?.focus();
+            }
+          : undefined
+      }
+    >
       <button
         type="button"
         onClick={async () => {

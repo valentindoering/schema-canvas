@@ -429,6 +429,10 @@ The human can only accept or decline a whole proposal, so agents should:
 - **Withdraw obsolete proposals.** When manual edits made one of its own pending
   proposals unnecessary, the agent withdraws it instead of leaving it for the
   human to decline.
+- **Rebase stale proposals.** A proposal listed as `stale`, or with a
+  `rebaseRequest` from the reviewer, conflicts with a hand edit of the same
+  lines. The agent reads the current context, proposes the change again on the
+  current text, and withdraws the old proposal.
 
 These rules are part of `canvasAgentPolicy`, returned with every context read,
 and of the MCP tool descriptions.
@@ -549,9 +553,12 @@ Proposal operations are restricted to table documentation, placement and
 appearance; arrow presentation; and adding/updating/deleting annotations.
 Agents cannot alter schema declarations or arbitrary JSON paths. Asset URLs and
 new image annotations are excluded from proposal operations. Each pending
-proposal stores its original baseline for a durable before/after review. Once a
-proposal is decided, its baseline is dropped and only the audit record remains,
-which keeps the ledger small. Treat the ledger as private documentation too.
+proposal stores the base values of the objects it writes (a table's layout
+entry, an arrow, an annotation), not a copy of the whole document, so a pending
+proposal stays a few kilobytes on a canvas of any size. Once a proposal is
+decided, its base is dropped and only the audit record remains. Ledgers written
+before 0.6.0 stored a full `baseDocument`; they load unchanged and are converted
+on the next write. Treat the ledger as private documentation too.
 
 ### Connect the human review surface
 
@@ -567,6 +574,8 @@ which keeps the ledger small. Treat the ledger as private documentation too.
     onOpenReview: (id) => humanApi.openReview(id),
     onAccept: (decision) => humanApi.accept(decision),
     onReject: (decision) => humanApi.reject(decision),
+    // Optional: offers "Ask agent to rebase" on stale suggestions.
+    onRequestRebase: (decision) => humanApi.requestRebase(decision),
   }}
 />
 ```
@@ -574,7 +583,8 @@ which keeps the ledger small. Treat the ledger as private documentation too.
 The host loads `snapshot` with `service.readDocument()` and `proposals` with
 `service.listProposals()`. It binds `humanApi` to authenticated host routes:
 `service.openReview(id, humanContext)`, `service.accept(decision, humanContext)`,
-and `service.reject(decision, humanContext)`. Refresh the controlled document,
+`service.reject(decision, humanContext)` and, optionally,
+`service.requestRebase(decision, humanContext)`. Refresh the controlled document,
 revision, and proposal props after decisions or external edits. These routes
 must authenticate and authorize the human independently of agent credentials.
 Do not accept a caller-supplied `reviewerId` as authentication.
@@ -588,6 +598,13 @@ collapses the panel so the target is visible. Optional previews show only the
 affected object, excluding surrounding frames and unrelated tables. Arrow
 endpoints are arranged together in previews so distant tables remain legible.
 Long unchanged sections of documentation fold away; changed lines remain visible.
+Inside a changed line, the added and removed words are marked as well. Diffs
+show at full height; the suggestion list is the one scroll area.
+
+A review returns focused documents: `before` and `after` contain only the
+tables, arrows and annotations the change touches (with the arrows leaving those
+tables and their targets), not the whole canvas, so reviews stay small on large
+schemas.
 
 Displaying a card calls `onOpenReview` before enabling its decision actions.
 Acceptance remains an explicit human click. Previews and navigation never change
@@ -595,12 +612,12 @@ canvas state or call save callbacks. Accept is disabled while local edits are
 unsaved and when the proposal is stale. Stale proposals can still be declined
 and list the fields that block them.
 
-Decisions are optimistic: the card leaves the panel at once, a short status line
-names the decision being saved, and decisions are sent to the host one at a time
-in the background. The canvas and the other cards stay usable meanwhile. If a
-decision fails, its card returns with the error. Refresh the controlled document,
-revision, and proposal props after decisions; this need not block the decision
-callback. Open cards also refresh quietly after the canvas saves its own edits,
+While a decision saves, its card stays with a spinner on the clicked button and
+both buttons disabled; it leaves once the callback resolves. Decisions are sent
+to the host one at a time; the canvas and the other cards stay usable meanwhile.
+If a decision fails, the card shows the error and can be decided again. Refresh
+the controlled document, revision, and proposal props after decisions; this need
+not block the decision callback. Open cards also refresh quietly after the canvas saves its own edits,
 keeping the previous review visible until the new one arrives.
 
 Staleness is decided per field. Each operation is compared only with the field
@@ -619,10 +636,16 @@ it writes, against the proposal's stored baseline:
 Moving a documented table, editing other tables or annotations, renaming tables,
 and changing views never block a suggestion. When both the human and the
 suggestion edited the same Markdown, a line-based three-way merge combines them
-if they changed different lines; the card marks such a change as merged and the
-diff shows the suggestion against the current text. Overlapping or adjacent line
-edits are a conflict. Proposal submission and whole-document saves still require
-the exact current revision.
+if they changed different lines, including neighbouring ones; insertions at the
+same place keep both, the hand-written lines first. Lines that differ only in how
+the rich-text editor serializes them (escaped `_` or `>`, trailing spaces, `*`
+or `-` bullets) count as unchanged. The card marks a merged change and the diff
+shows the suggestion against the current text. Only edits of the same line by
+both sides conflict. Such a card is marked **Out of date**, lists the
+conflicting fields and offers **Ask agent to rebase** (with `onRequestRebase`):
+the request is recorded on the proposal, the agent sees it as `rebaseRequest`
+in `list_canvas_proposals` and proposes again on the current text. Proposal
+submission and whole-document saves still require the exact current revision.
 
 The server issues a short-lived, reviewer-bound token when opening a review.
 Acceptance verifies that token, the exact proposal digest, pending status, and
@@ -631,7 +654,7 @@ result is bound to the receipt too: if the human edits the same text again after
 opening the review, acceptance asks for the updated result to be reviewed first.
 Reopening a card with a still-valid receipt is a read and does not write the
 ledger. Repeated approval cannot apply twice. Decisions retain reviewer, timestamp, and resulting revision;
-review tokens and baseline documents are never returned through agent tools.
+review tokens and baselines are never returned through agent tools.
 
 This establishes a permission boundary only if the host protects it. An agent
 with unrestricted write access to the authority file can bypass any API.

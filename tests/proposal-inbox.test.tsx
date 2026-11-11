@@ -310,7 +310,7 @@ describe("persistent suggestion panel", () => {
         .disabled,
     ).toBe(true);
   });
-  it("hides a decided card at once, saves in the background, and keeps other cards usable", async () => {
+  it("keeps a deciding card with a spinner, saves one at a time, and keeps other cards usable", async () => {
     const a = fixture(),
       b = fixture("proposal-2");
     const finishes: Array<() => void> = [];
@@ -334,16 +334,25 @@ describe("persistent suggestion panel", () => {
     await waitFor(() =>
       expect(screen.getAllByText("# Proposed guide")).toHaveLength(2),
     );
-    fireEvent.click(
-      within(screen.getByRole("article", { name: a.proposal.title })).getByRole(
-        "button",
-        { name: "Decline" },
-      ),
+    const card = screen.getByRole("article", { name: a.proposal.title });
+    const decline = within(card).getByRole("button", {
+      name: "Decline",
+    }) as HTMLButtonElement;
+    fireEvent.click(decline);
+    // The card stays while its decision saves: both buttons are disabled and
+    // the clicked one shows a spinner.
+    expect(card.getAttribute("aria-busy")).toBe("true");
+    expect(decline.disabled).toBe(true);
+    expect(decline.getAttribute("aria-busy")).toBe("true");
+    expect(decline.querySelector(".schema-canvas__spinner")).toBeTruthy();
+    const accept = within(card).getByRole("button", {
+      name: "Accept",
+    }) as HTMLButtonElement;
+    expect(accept.disabled).toBe(true);
+    expect(accept.querySelector(".schema-canvas__spinner")).toBeNull();
+    expect(within(card).getByRole("status").textContent).toContain(
+      `Declining “${a.proposal.title}”`,
     );
-    expect(
-      screen.queryByRole("article", { name: a.proposal.title }),
-    ).toBeNull();
-    expect(screen.getByRole("status").textContent).toContain(a.proposal.title);
     const second = within(
       screen.getByRole("article", { name: b.proposal.title }),
     ).getByRole("button", { name: "Decline" }) as HTMLButtonElement;
@@ -354,9 +363,86 @@ describe("persistent suggestion panel", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(controls.onReject).toHaveBeenCalledTimes(1);
     await act(async () => finishes[0]!());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("article", { name: a.proposal.title }),
+      ).toBeNull(),
+    );
     await waitFor(() => expect(controls.onReject).toHaveBeenCalledTimes(2));
     await act(async () => finishes[1]!());
     await waitFor(() => expect(screen.queryByRole("complementary")).toBeNull());
+  });
+  it("asks the agent to rebase a stale suggestion with one click", async () => {
+    const { controls, review } = fixture();
+    controls.onOpenReview = vi.fn(async () => ({
+      ...review,
+      stale: true,
+      conflicts: [{ index: 0, objectId: "projects", field: "markdown" }],
+    }));
+    let finish = () => {};
+    controls.onRequestRebase = vi.fn(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+    );
+    render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    expect(await screen.findByText(labels.staleTitle)).toBeTruthy();
+    const ask = screen.getByRole("button", { name: labels.requestRebase });
+    fireEvent.click(ask);
+    expect(controls.onRequestRebase).toHaveBeenCalledWith({
+      proposalId: "proposal-1",
+      reviewToken: "human-receipt",
+    });
+    expect(ask.getAttribute("aria-busy")).toBe("true");
+    await act(async () => finish());
+    expect(
+      await screen.findByText(`${labels.rebaseRequested} example assistant`),
+    ).toBeTruthy();
+    expect(controls.onAccept).not.toHaveBeenCalled();
+    expect(
+      (screen.getByRole("button", { name: "Decline" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+  it("marks changed words inside a changed line", async () => {
+    const { controls, proposal, review } = fixture();
+    const before = structuredClone(canvasDocument);
+    before.layout.projects!.markdown =
+      "- every project keeps one owner account\n- unchanged line";
+    proposal.operations = [
+      {
+        op: "set_table_markdown",
+        tableId: "projects",
+        markdown: "- every project keeps one billing account\n- unchanged line",
+      },
+    ];
+    const preview = previewCanvasProposal(before, proposal);
+    controls.onOpenReview = vi.fn(async () => ({
+      ...review,
+      proposal,
+      before,
+      after: preview.document,
+      changes: preview.changes,
+    }));
+    render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    const group = await screen.findByRole("group", { name: "Documentation" });
+    await waitFor(() =>
+      expect(group.querySelector("ins")?.textContent).toBe("billing"),
+    );
+    expect(group.querySelector("del")?.textContent).toBe("owner");
+    expect(
+      group.querySelector(".schema-canvas__diff-line--added")!.textContent,
+    ).toContain("- every project keeps one billing account");
   });
   it("shows why a suggestion is blocked and when it was merged", async () => {
     const { controls, review } = fixture();

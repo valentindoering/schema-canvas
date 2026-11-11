@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function writable(page: Page, markdown?: string) {
   await page.goto(
@@ -180,19 +180,10 @@ test("source editing remains available if the lazy editor fails to load", async 
   );
 });
 
-test("Tab and Shift+Tab indent list items without leaving the editor", async ({
-  page,
-}) => {
-  await writable(page, "- first\n- second\n");
-  await page.getByText("Projects", { exact: true }).click();
-  const content = page.getByRole("textbox", { name: "Table Markdown" });
-  await content.getByText("first", { exact: true }).click();
-  // The first item cannot be indented, but focus must stay in the editor.
-  await page.keyboard.press("Tab");
-  await expect(content).toBeFocused();
-  await content.getByText("second", { exact: true }).click();
-  // ProseMirror reads a mouse selection on the next selectionchange event.
-  await page.waitForFunction(() => {
+/** Click a list item's text and wait until ProseMirror has read the selection. */
+async function caretIn(page: Page, scope: Locator, text: string) {
+  await scope.getByText(text, { exact: true }).click();
+  await page.waitForFunction((expected) => {
     const view = document.querySelector<
       HTMLElement & {
         editor?: {
@@ -200,20 +191,95 @@ test("Tab and Shift+Tab indent list items without leaving the editor", async ({
         };
       }
     >(".ProseMirror");
-    return view?.editor?.state.selection.$from.parent.textContent === "second";
+    return view?.editor?.state.selection.$from.parent.textContent === expected;
+  }, text);
+}
+
+for (const editor of ["inline", "expanded"] as const)
+  test(`Tab and Shift+Tab nest list items in the ${editor} editor, even inside a host focus trap`, async ({
+    page,
+  }) => {
+    await page.goto(
+      `/?focusTrap&markdown=${encodeURIComponent("- first\n- second\n- third\n")}`,
+    );
+    await page.getByTestId("mode").click();
+    await page.getByText("Projects", { exact: true }).click();
+    let scope: Locator = page.locator("body");
+    if (editor === "expanded") {
+      await page.getByRole("button", { name: "Expand editor" }).click();
+      scope = page.getByRole("dialog", { name: "Table Markdown" });
+    }
+    const content = scope.getByRole("textbox", { name: "Table Markdown" });
+    await expect(content).toHaveAttribute("contenteditable", "true");
+    // The first item cannot be nested, but focus must stay in the editor.
+    await caretIn(page, content, "first");
+    await page.keyboard.press("Tab");
+    await expect(content).toBeFocused();
+    await expect(content.locator("li li")).toHaveCount(0);
+    await caretIn(page, content, "second");
+    await page.keyboard.press("Tab");
+    await expect(content.locator("li li")).toHaveText("second");
+    await expect(content).toBeFocused();
+    // Typing continues in the nested item.
+    await page.keyboard.type(" nested");
+    await expect(content.locator("li li")).toHaveText("second nested");
+    await caretIn(page, content, "third");
+    await page.keyboard.press("Tab");
+    await expect(content.locator("li li")).toHaveCount(2);
+    await page.keyboard.press("Tab");
+    await expect(content.locator("li li li")).toHaveText("third");
+    await expect(page.getByTestId("layout")).toContainText(
+      String.raw`"markdown":"- first\n  - second nested\n    - third"`,
+    );
+    await page.keyboard.press("Shift+Tab");
+    await expect(content.locator("li li li")).toHaveCount(0);
+    await page.keyboard.press("Shift+Tab");
+    await expect(content.locator("li li")).toHaveCount(1);
+    await expect(content).toBeFocused();
+    // A top-level item stays a list item on Shift+Tab.
+    await page.keyboard.press("Shift+Tab");
+    await expect(content.locator(":scope > ul > li")).toHaveCount(2);
+    await expect(content).toBeFocused();
+    // Outside a list, Tab still moves focus (no keyboard trap). The expanded
+    // editor is a modal dialog, which keeps focus inside by design.
+    if (editor === "expanded") return;
+    await content.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Plain paragraph");
+    await expect(content.locator(":scope > p")).toHaveText("Plain paragraph");
+    await page.keyboard.press("Tab");
+    await expect(content).not.toBeFocused();
   });
-  await page.keyboard.press("Tab");
-  await expect(content.locator("li li")).toHaveText("second");
-  await expect(page.getByTestId("layout")).toContainText(
-    String.raw`"markdown":"- first\n  - second"`,
+
+test("Tab and Shift+Tab indent list lines in Markdown source", async ({
+  page,
+}) => {
+  await writable(page, "- first\n- second\nplain");
+  await page.getByText("Projects", { exact: true }).click();
+  await page
+    .getByRole("button", { name: "Markdown source", exact: true })
+    .click();
+  const source = page.getByRole("textbox", { name: "Table Markdown" });
+  await expect(source).toHaveValue("- first\n- second\nplain");
+  await source.focus();
+  await source.evaluate((field: HTMLTextAreaElement) =>
+    field.setSelectionRange(10, 10),
   );
+  await page.keyboard.press("Tab");
+  await expect(source).toHaveValue("- first\n  - second\nplain");
+  await expect(source).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  await expect(content.locator("li li")).toHaveCount(0);
-  await expect(content).toBeFocused();
-  // A top-level item stays a list item on Shift+Tab.
-  await page.keyboard.press("Shift+Tab");
-  await expect(content.locator("li")).toHaveCount(2);
-  await expect(content).toBeFocused();
+  await expect(source).toHaveValue("- first\n- second\nplain");
+  await expect(source).toBeFocused();
+  await source.evaluate((field: HTMLTextAreaElement) =>
+    field.setSelectionRange(field.value.length, field.value.length),
+  );
+  await page.keyboard.press("Tab");
+  await expect(source).not.toBeFocused();
+  await expect(page.getByTestId("layout")).toContainText(
+    String.raw`"markdown":"- first\n- second\nplain"`,
+  );
 });
 
 test("the expanded editor is centered even with a host margin reset", async ({

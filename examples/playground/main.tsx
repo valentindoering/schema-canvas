@@ -354,6 +354,9 @@ function Playground() {
             onReject: async (input) => {
               await reviewService.reject(input, "demo-human-session");
             },
+            onRequestRebase: async (input) => {
+              await reviewService.requestRebase(input, "demo-human-session");
+            },
           }}
           onSaveLayout={async ({ value }) =>
             store.transact(async (state) => {
