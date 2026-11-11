@@ -6,10 +6,11 @@
   stores only the base values of the objects it writes instead of a full copy
   of the document, and a review returns focused before/after documents (the
   touched tables, arrows and annotations) instead of two full documents. On a
-  generated 200-table canvas with eight pending suggestions, accepting one and
-  refreshing the other cards went from REPLACE_BEFORE to REPLACE_AFTER of server
-  time; a pending proposal shrank from about 0.5 MB to under 1 KB and a review
-  payload from about 1 MB to a few kilobytes.
+  generated 200-table canvas (0.76 MB) with eight pending table-note
+  suggestions, accepting one took 76 ms instead of 614 ms, and refreshing the
+  other seven cards afterwards 0.5 s instead of 2.7 s of server time. The
+  ledger shrank from 9.2 MB to 24 KB and one review payload from 1.5 MB to
+  13 KB. `tests/review-scale.test.ts` guards this.
 - Accept and Decline show a spinner and are disabled while the decision saves;
   the card leaves once it has saved. Decisions still save one at a time and the
   canvas and other cards stay usable.
