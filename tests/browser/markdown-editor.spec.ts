@@ -240,7 +240,9 @@ for (const editor of ["inline", "expanded"] as const)
     await page.keyboard.press("Shift+Tab");
     await expect(content.locator(":scope > ul > li")).toHaveCount(2);
     await expect(content).toBeFocused();
-    // Outside a list, Tab still moves focus (no keyboard trap).
+    // Outside a list, Tab still moves focus (no keyboard trap). The expanded
+    // editor is a modal dialog, which keeps focus inside by design.
+    if (editor === "expanded") return;
     await content.press("ControlOrMeta+End");
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
@@ -260,6 +262,7 @@ test("Tab and Shift+Tab indent list lines in Markdown source", async ({
     .click();
   const source = page.getByRole("textbox", { name: "Table Markdown" });
   await expect(source).toHaveValue("- first\n- second\nplain");
+  await source.focus();
   await source.evaluate((field: HTMLTextAreaElement) =>
     field.setSelectionRange(10, 10),
   );
