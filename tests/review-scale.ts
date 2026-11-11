@@ -120,21 +120,10 @@ export async function runReviewAtScale(pending = 8): Promise<ScaleRun> {
   const directory = await mkdtemp(path.join(tmpdir(), "schema-canvas-scale-"));
   try {
     const document = scaleDocument();
-    const layoutStore = createJsonStore({
-      filePath: path.join(directory, "layout.json"),
-      parse: (candidate) => parseSchemaLayout(candidate, document.graph),
-    });
-    await layoutStore.write(
-      document.layout,
-      (await layoutStore.read()).revision,
-    );
-    const annotationStore = createJsonStore({
-      filePath: path.join(directory, "annotations.json"),
-      parse: (candidate) => parseSchemaAnnotations(candidate),
-    });
-    await annotationStore.write(
+    await writeJsonAtomic(path.join(directory, "layout.json"), document.layout);
+    await writeJsonAtomic(
+      path.join(directory, "annotations.json"),
       document.annotations,
-      (await annotationStore.read()).revision,
     );
     const store = createSplitFileReviewStore(directory, document.graph);
     const service = createCanvasReviewService({

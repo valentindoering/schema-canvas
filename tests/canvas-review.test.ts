@@ -217,9 +217,9 @@ describe("proposal-only agent capabilities", () => {
     const refreshed = await service.openReview(second.id, "human:reviewer");
     expect(refreshed.stale).toBe(false);
     expect(refreshed.currentRevision).not.toBe(refreshed.baseRevision);
-    expect(refreshed.before.layout.projects!.markdown).toContain(
-      "Project ownership",
-    );
+    // Reviews carry only the objects they touch, not the whole canvas.
+    expect(refreshed.before.layout.projects).toBeUndefined();
+    expect(refreshed.before.layout.accounts!.markdown).toBeUndefined();
     expect(refreshed.after.layout.accounts!.markdown).toBe("# Account guide");
     // The reviewed object is unchanged, so the original exact receipt also stays valid.
     await service.accept(

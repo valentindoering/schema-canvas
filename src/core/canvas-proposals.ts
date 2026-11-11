@@ -459,6 +459,8 @@ export function mergeCanvasText(
 ): string | null {
   if (ours === theirs || theirs === base) return ours;
   if (ours === base) return theirs;
+  // Two texts written from nothing share no lines to anchor a merge on.
+  if (!base.trim()) return null;
   const o = base.split("\n");
   const a = ours.split("\n");
   const b = theirs.split("\n");
