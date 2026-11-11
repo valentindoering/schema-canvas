@@ -151,7 +151,7 @@ export function registerCanvasAgentTools(
     "list_canvas_proposals",
     {
       description:
-        "List your own proposals, newest first, with status and whether each pending one is stale. Read-only.",
+        "List your own proposals, newest first, with status, whether each pending one is stale (and which fields conflict), and any `rebaseRequest` from the human reviewer. Redo a stale or rebase-requested proposal on the current text, then withdraw the old one. Read-only.",
       inputSchema: fromJsonSchema(canvasProposalListSchema),
       annotations,
     },

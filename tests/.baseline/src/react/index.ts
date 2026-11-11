@@ -1,0 +1,30 @@
+export { SchemaCanvas } from "./schema-canvas.js";
+export {
+  buildCanvasModel,
+  fallbackPosition,
+  handleId,
+  isAutomaticallyMuted,
+  visibleFields,
+  type AnnotationNodeData,
+  type BuildCanvasModelOptions,
+  type CanvasEdge,
+  type CanvasEdgeData,
+  type CanvasNode,
+  type TableNodeData,
+} from "./model.js";
+export {
+  defaultSchemaCanvasFeatures,
+  defaultSchemaCanvasLabels,
+  type SchemaCanvasFeatures,
+  type SchemaCanvasLabels,
+  type SchemaCanvasProps,
+  type SchemaCanvasHandle,
+  type SchemaCanvasSaveState,
+  type SchemaCanvasTheme,
+} from "./types.js";
+
+export {
+  CanvasProposalInbox,
+  type CanvasProposalReviewControls,
+  type CanvasProposalLocation,
+} from "./canvas-proposal-inbox.js";

@@ -1,0 +1,240 @@
+import {
+  assertRecord,
+  clamp,
+  finiteNumber,
+  optionalString,
+  requiredString,
+  snap,
+} from "./shared.js";
+import type {
+  SchemaAnnotation,
+  SchemaAnnotationColor,
+  SchemaAnnotationKind,
+} from "./types.js";
+
+const kinds = new Set<SchemaAnnotationKind>(["frame", "note", "text", "image"]);
+const colors = new Set<SchemaAnnotationColor>([
+  "slate",
+  "blue",
+  "emerald",
+  "amber",
+]);
+const idPattern = /^[a-zA-Z0-9_-]+$/;
+
+export type ParseAnnotationsOptions = {
+  gridSize?: number;
+  resolveImage?: (asset: string) => string | undefined;
+};
+
+export function parseSchemaAnnotations(
+  candidate: unknown,
+  options: ParseAnnotationsOptions = {},
+): SchemaAnnotation[] {
+  const value =
+    candidate !== null &&
+    typeof candidate === "object" &&
+    !Array.isArray(candidate) &&
+    "annotations" in candidate
+      ? (candidate as { annotations: unknown }).annotations
+      : candidate;
+  if (!Array.isArray(value)) {
+    throw new Error("Schema annotations must be an array or wrapper object.");
+  }
+  const gridSize = options.gridSize ?? 20;
+  const ids = new Set<string>();
+  return value
+    .map((item, index): SchemaAnnotation => {
+      assertRecord(item, `Annotation ${index + 1} must be an object.`);
+      const id = requiredString(
+        item.id,
+        `Annotation ${index + 1} needs an id.`,
+        100,
+      );
+      if (!idPattern.test(id)) {
+        throw new Error(
+          `Annotation id \"${id}\" contains unsupported characters.`,
+        );
+      }
+      if (ids.has(id)) throw new Error(`Duplicate annotation id \"${id}\".`);
+      ids.add(id);
+
+      const rawKind = item.kind ?? "frame";
+      if (
+        typeof rawKind !== "string" ||
+        !kinds.has(rawKind as SchemaAnnotationKind)
+      ) {
+        throw new Error(`Annotation \"${id}\" has an invalid kind.`);
+      }
+      const kind = rawKind as SchemaAnnotationKind;
+      const rawColor = item.color ?? "slate";
+      if (
+        typeof rawColor !== "string" ||
+        !colors.has(rawColor as SchemaAnnotationColor)
+      ) {
+        throw new Error(`Annotation \"${id}\" has an invalid color.`);
+      }
+      const text = optionalString(
+        item.text,
+        `Annotation \"${id}\" text must be a string.`,
+        4000,
+      );
+      const markdown = optionalString(
+        item.markdown,
+        `Annotation \"${id}\" Markdown must be a string.`,
+        5000,
+        { preserveWhitespace: true },
+      );
+      const legacyLabel = optionalString(
+        item.label,
+        `Annotation \"${id}\" label must be a string.`,
+        120,
+      );
+      const isMarkdown = kind === "note" || kind === "text";
+      if (!isMarkdown && markdown !== undefined) {
+        throw new Error(
+          `Annotation \"${id}\" cannot use Markdown with kind \"${kind}\".`,
+        );
+      }
+      if (isMarkdown && markdown !== undefined && (legacyLabel || text)) {
+        throw new Error(
+          `Annotation \"${id}\" mixes Markdown with legacy label or text.`,
+        );
+      }
+      const content = isMarkdown
+        ? (markdown ?? migrateLegacyMarkdown(kind, legacyLabel, text))
+        : undefined;
+      const asset = optionalString(
+        item.asset,
+        `Annotation \"${id}\" asset must be a string.`,
+        500,
+      );
+      if (asset && kind !== "image") {
+        throw new Error(
+          `Annotation \"${id}\" can only use an asset when it is an image.`,
+        );
+      }
+      const storedSrc = optionalString(
+        item.src ?? item.imageSrc,
+        `Annotation \"${id}\" src must be a string.`,
+        8 * 1024 * 1024,
+      );
+      const src = (asset && options.resolveImage?.(asset)) || storedSrc;
+      const annotation: SchemaAnnotation = {
+        id,
+        kind,
+        ...(!isMarkdown
+          ? {
+              label: requiredString(
+                item.label,
+                `Annotation \"${id}\" needs a label.`,
+                120,
+              ),
+            }
+          : {}),
+        x: snap(
+          finiteNumber(item.x, `Annotation \"${id}\" needs a finite x.`),
+          gridSize,
+        ),
+        y: snap(
+          finiteNumber(item.y, `Annotation \"${id}\" needs a finite y.`),
+          gridSize,
+        ),
+        width: clamp(
+          snap(
+            finiteNumber(
+              item.width,
+              `Annotation \"${id}\" needs a finite width.`,
+            ),
+            gridSize,
+          ),
+          120,
+          5000,
+        ),
+        height: clamp(
+          snap(
+            finiteNumber(
+              item.height,
+              `Annotation \"${id}\" needs a finite height.`,
+            ),
+            gridSize,
+          ),
+          80,
+          5000,
+        ),
+        color: rawColor as SchemaAnnotationColor,
+      };
+      if (content) annotation.markdown = content;
+      if (!isMarkdown && text) annotation.text = text;
+      if (asset) annotation.asset = asset;
+      if (src) annotation.src = src;
+      if (kind === "text") {
+        annotation.fontSize = clamp(
+          typeof item.fontSize === "number" && Number.isFinite(item.fontSize)
+            ? Math.round(item.fontSize)
+            : 32,
+          12,
+          160,
+        );
+      }
+      return annotation;
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+export function serializeSchemaAnnotations(
+  annotations: readonly SchemaAnnotation[],
+  envelope: "array" | "object" = "object",
+  options: { omitDefaults?: boolean } = {},
+) {
+  const validated = new Map(
+    parseSchemaAnnotations(annotations).map((annotation) => [
+      annotation.id,
+      annotation,
+    ]),
+  );
+  const value = annotations.map((source) => {
+    const annotation = validated.get(source.id)!;
+    const isMarkdown = annotation.kind === "note" || annotation.kind === "text";
+    return {
+      id: annotation.id,
+      ...(!options.omitDefaults || annotation.kind !== "frame"
+        ? { kind: annotation.kind }
+        : {}),
+      ...(isMarkdown
+        ? annotation.markdown
+          ? { markdown: annotation.markdown }
+          : {}
+        : { label: annotation.label }),
+      ...(!isMarkdown && annotation.text ? { text: annotation.text } : {}),
+      ...(annotation.asset ? { asset: annotation.asset } : {}),
+      ...(annotation.kind === "image" && !annotation.asset && annotation.src
+        ? { src: annotation.src }
+        : {}),
+      x: source.x,
+      y: source.y,
+      width: source.width,
+      height: source.height,
+      ...(!options.omitDefaults || annotation.color !== "slate"
+        ? { color: annotation.color }
+        : {}),
+      ...(annotation.kind === "text" && annotation.fontSize !== undefined
+        ? { fontSize: annotation.fontSize }
+        : {}),
+    };
+  });
+  return envelope === "array" ? value : { annotations: value };
+}
+
+function migrateLegacyMarkdown(
+  kind: "note" | "text",
+  label: string | undefined,
+  text: string | undefined,
+) {
+  if (kind === "note") {
+    return [label ? `# ${label}` : "", text ?? ""].filter(Boolean).join("\n\n");
+  }
+  // The old text editor initialized its label to "Text". Do not turn that
+  // placeholder into visible Markdown when there is actual body content.
+  if (!label || label === text || (label === "Text" && text)) return text;
+  return [label, text ?? ""].filter(Boolean).join("\n\n");
+}
