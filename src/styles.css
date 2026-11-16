@@ -2162,10 +2162,9 @@
   color: var(--schema-canvas-success);
   text-decoration: none;
 }
+/* Full height: the suggestion list is the one scroll area. */
 .schema-canvas__proposal-diff {
-  max-height: 220px;
   margin: 0;
-  overflow: auto;
   border: 1px solid var(--schema-canvas-border);
   border-radius: 5px;
   background: var(--schema-canvas-surface-muted);
@@ -2277,14 +2276,60 @@
   color: var(--schema-canvas-text-muted);
   font-size: 11px;
 }
-.schema-canvas__proposal-saving {
-  margin: 0;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--schema-canvas-border);
-  color: var(--schema-canvas-text-muted);
-  font-size: 11px;
+.schema-canvas__diff-line ins,
+.schema-canvas__diff-line del {
+  border-radius: 2px;
+  text-decoration: none;
+}
+.schema-canvas__diff-line--added ins {
+  background: color-mix(in srgb, var(--schema-canvas-success) 28%, transparent);
+}
+.schema-canvas__diff-line--removed del {
+  background: color-mix(in srgb, var(--schema-canvas-danger) 26%, transparent);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.schema-canvas__proposal-card--stale {
+  box-shadow: inset 3px 0 0 var(--schema-canvas-danger);
+}
+.schema-canvas__proposal-warning button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.schema-canvas__proposal-card footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.schema-canvas__spinner {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: schema-canvas-spin 0.7s linear infinite;
+}
+@keyframes schema-canvas-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schema-canvas__spinner {
+    animation-duration: 2s;
+  }
+}
+.schema-canvas__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 .schema-canvas__proposal-delete {

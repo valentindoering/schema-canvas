@@ -5,12 +5,16 @@ import {
   parseCanvasDocument,
   type CanvasDocument,
 } from "./canvas-document.js";
+import { parseSchemaAnnotations } from "./annotations.js";
 import { getSchemaEdgeLayout, setSchemaEdgeLayout } from "./layout.js";
 import { assertRecord, finiteNumber } from "./shared.js";
 import type {
   SchemaAnnotation,
+  SchemaEdge,
   SchemaEdgeLayout,
+  SchemaLayout,
   SchemaTableAppearance,
+  SchemaTableLayout,
 } from "./types.js";
 
 export type CanvasProposalOperation =
@@ -63,6 +67,11 @@ export type CanvasProposal = CanvasProposalInput & {
   status: "pending" | "accepted" | "rejected" | "withdrawn";
   /** For "withdrawn", reviewerId is the proposing agent's actor id. */
   decision?: { reviewerId: string; at: string; revision: string };
+  /**
+   * A human asked the proposing agent to redo this stale suggestion on the
+   * current text: read the context again, propose anew, withdraw this one.
+   */
+  rebaseRequest?: { reviewerId: string; at: string };
 };
 export type CanvasProposalChange = {
   index: number;
@@ -347,6 +356,23 @@ export function previewCanvasProposal(
   return { document, changes };
 }
 
+/**
+ * Lines that differ only in how an editor serializes the same Markdown (escaped
+ * punctuation, HTML entities, trailing spaces, bullet characters) compare equal.
+ * A rich-text save rewrites every line this way; that is not a human edit.
+ */
+function markdownLineKey(line: string): string {
+  return line
+    .replace(/\s+$/, "")
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\\([\\`*_{}[\]()#+\-.!>~|<])/g, "$1")
+    .replace(/^(\s*)[*+](\s)/, "$1-$2");
+}
+
 function lineMatches(base: string[], other: string[]): Int32Array | null {
   const matches = new Int32Array(base.length).fill(-1);
   let prefix = 0;
@@ -387,9 +413,44 @@ function lineMatches(base: string[], other: string[]): Int32Array | null {
   return matches;
 }
 
+/** Base lines [start, end) replaced by `lines` on one side. Empty range = insertion. */
+type Hunk = { start: number; end: number; lines: string[]; keys: string[] };
+
+function hunks(
+  baseLength: number,
+  side: string[],
+  keys: string[],
+  matches: Int32Array,
+): Hunk[] {
+  const result: Hunk[] = [];
+  let i = 0,
+    j = 0;
+  while (i < baseLength || j < side.length) {
+    if (i < baseLength && matches[i] === j) {
+      i++;
+      j++;
+      continue;
+    }
+    const start = i;
+    while (i < baseLength && matches[i] === -1) i++;
+    const next = i < baseLength ? matches[i]! : side.length;
+    result.push({
+      start,
+      end: i,
+      lines: side.slice(j, next),
+      keys: keys.slice(j, next),
+    });
+    j = next;
+  }
+  return result;
+}
+
 /**
- * Line-based three-way merge. Returns null when both sides changed the same or
- * adjacent lines differently; the caller must then treat the edit as a conflict.
+ * Three-way merge of Markdown by line hunks. Edits of different lines combine,
+ * even on neighbouring lines, and insertions at the same place keep both (the
+ * live text first). Returns null when both sides changed the same line
+ * differently; the caller must then treat the edit as a conflict. The result
+ * keeps the live text's form of every line the proposal did not change.
  */
 export function mergeCanvasText(
   base: string,
@@ -398,49 +459,182 @@ export function mergeCanvasText(
 ): string | null {
   if (ours === theirs || theirs === base) return ours;
   if (ours === base) return theirs;
+  // Two texts written from nothing share no lines to anchor a merge on.
+  if (!base.trim()) return null;
   const o = base.split("\n");
   const a = ours.split("\n");
   const b = theirs.split("\n");
-  const ma = lineMatches(o, a);
-  const mb = lineMatches(o, b);
+  const ok = o.map(markdownLineKey);
+  const ak = a.map(markdownLineKey);
+  const bk = b.map(markdownLineKey);
+  const ma = lineMatches(ok, ak);
+  const mb = lineMatches(ok, bk);
   if (!ma || !mb) return null;
-  const same = (x: string[], y: string[]) =>
-    x.length === y.length && x.every((line, index) => line === y[index]);
+  const same = (x: Hunk, y: Hunk) =>
+    x.start === y.start &&
+    x.end === y.end &&
+    x.keys.length === y.keys.length &&
+    x.keys.every((key, index) => key === y.keys[index]);
+  // Live-text hunks sort before the proposal's at the same place.
+  const all = [
+    ...hunks(o.length, b, bk, mb).map((hunk) => ({ ...hunk, order: 0 })),
+    ...hunks(o.length, a, ak, ma).map((hunk) => ({ ...hunk, order: 1 })),
+  ].sort(
+    (x, y) =>
+      x.start - y.start ||
+      Number(x.end > x.start) - Number(y.end > y.start) ||
+      x.order - y.order,
+  );
   const out: string[] = [];
-  const resolve = (oc: string[], ac: string[], bc: string[]) => {
-    if (same(ac, oc)) out.push(...bc);
-    else if (same(bc, oc) || same(ac, bc)) out.push(...ac);
-    else return false;
-    return true;
-  };
-  let i = 0,
-    ia = 0,
-    ib = 0;
-  for (;;) {
-    let k = 0;
-    while (i + k < o.length && ma[i + k] === ia + k && mb[i + k] === ib + k)
-      k++;
-    if (k) {
-      out.push(...o.slice(i, i + k));
-      i += k;
-      ia += k;
-      ib += k;
-      continue;
-    }
-    let next = i;
-    while (next < o.length && (ma[next] === -1 || mb[next] === -1)) next++;
-    if (next === o.length) {
-      if (!resolve(o.slice(i), a.slice(ia), b.slice(ib))) return null;
-      return out.join("\n");
-    }
-    const na = ma[next]!,
-      nb = mb[next]!;
-    if (!resolve(o.slice(i, next), a.slice(ia, na), b.slice(ib, nb)))
+  let position = 0;
+  let previous: Hunk | undefined;
+  for (const hunk of all) {
+    const insertion = hunk.start === hunk.end;
+    if (hunk.start < position) {
+      if (previous && same(previous, hunk)) continue;
       return null;
-    i = next;
-    ia = na;
-    ib = nb;
+    }
+    if (insertion && previous && same(previous, hunk)) continue;
+    for (let k = position; k < hunk.start; k++) out.push(b[mb[k]!]!);
+    out.push(...hunk.lines);
+    position = hunk.end;
+    previous = hunk;
   }
+  for (let k = position; k < o.length; k++) out.push(b[mb[k]!]!);
+  return out.join("\n");
+}
+
+/**
+ * What a pending proposal needs of its base document: the earlier value of
+ * every object it writes (null when the object did not exist). Replaces the
+ * full baseline document, which made each pending proposal as large as the
+ * whole canvas.
+ */
+export type CanvasProposalBase = {
+  /** Table layout entries, including the source tables of edited arrows. */
+  layout: Record<string, SchemaTableLayout | null>;
+  edges: Record<string, SchemaEdge | null>;
+  annotations: Record<string, SchemaAnnotation | null>;
+};
+
+export function canvasProposalBase(
+  document: CanvasDocument,
+  operations: readonly CanvasProposalOperation[],
+): CanvasProposalBase {
+  const base: CanvasProposalBase = { layout: {}, edges: {}, annotations: {} };
+  const table = (id: string) => {
+    base.layout[id] = Object.hasOwn(document.layout, id)
+      ? structuredClone(document.layout[id]!)
+      : null;
+  };
+  for (const operation of operations) {
+    if ("tableId" in operation) table(operation.tableId);
+    else if (operation.op === "update_edge") {
+      const edge = document.graph.edges.find((e) => e.id === operation.edgeId);
+      base.edges[operation.edgeId] = edge ? structuredClone(edge) : null;
+      if (edge) table(edge.source);
+    } else {
+      const id =
+        operation.op === "add_annotation"
+          ? operation.annotation.id
+          : operation.annotationId;
+      const annotation = document.annotations.find((a) => a.id === id);
+      base.annotations[id] = annotation ? structuredClone(annotation) : null;
+    }
+  }
+  return base;
+}
+
+export function parseCanvasProposalBase(
+  candidate: unknown,
+): CanvasProposalBase {
+  assertRecord(candidate, "Proposal base must be an object.");
+  canvasKeys(candidate, ["layout", "edges", "annotations"], "Proposal base");
+  const { layout, edges, annotations } = candidate;
+  assertRecord(layout, "Proposal base layout must be an object.");
+  assertRecord(edges, "Proposal base edges must be an object.");
+  assertRecord(annotations, "Proposal base annotations must be an object.");
+  for (const [id, entry] of Object.entries(layout)) {
+    canvasText(id, "Table id", 500);
+    if (entry === null) continue;
+    assertRecord(entry, "Invalid base table layout.");
+    finiteNumber(entry.x, "Base table layout needs x.");
+    finiteNumber(entry.y, "Base table layout needs y.");
+    if (entry.markdown !== undefined)
+      canvasText(entry.markdown, "Table Markdown", 4000, true);
+  }
+  for (const [id, edge] of Object.entries(edges)) {
+    canvasText(id, "Edge id", 500);
+    if (edge === null) continue;
+    assertRecord(edge, "Invalid base edge.");
+    for (const key of ["id", "source", "target", "field"])
+      canvasText(edge[key], `Edge ${key}`, 1000);
+  }
+  for (const [id, annotation] of Object.entries(annotations)) {
+    canvasText(id, "Annotation id", 500);
+    if (annotation === null) continue;
+    const [parsed] = parseSchemaAnnotations([annotation], { gridSize: 1 });
+    if (parsed?.id !== id) throw new Error("Invalid base annotation.");
+  }
+  return JSON.parse(canonicalCanvasJson(candidate)) as CanvasProposalBase;
+}
+
+/** The current document with every object the proposal writes put back as it was at its base. */
+export function applyCanvasProposalBase(
+  current: CanvasDocument,
+  base: CanvasProposalBase,
+): CanvasDocument {
+  const layout = { ...current.layout };
+  for (const [id, entry] of Object.entries(base.layout))
+    if (entry) layout[id] = structuredClone(entry);
+    else delete layout[id];
+  let annotations = [...current.annotations];
+  for (const [id, annotation] of Object.entries(base.annotations)) {
+    const index = annotations.findIndex((a) => a.id === id);
+    if (!annotation) annotations = annotations.filter((a) => a.id !== id);
+    else if (index === -1) annotations.push(structuredClone(annotation));
+    else annotations[index] = structuredClone(annotation);
+  }
+  return { ...current, layout, annotations };
+}
+
+/**
+ * The part of a document a review needs: the tables, arrows and annotations a
+ * change touches, the arrows leaving those tables and their targets. Keeps
+ * review payloads small on large canvases.
+ */
+export function focusCanvasDocument(
+  document: CanvasDocument,
+  objectIds: Iterable<string>,
+): CanvasDocument {
+  const tableIds = new Set<string>();
+  const annotationIds = new Set<string>();
+  for (const id of objectIds) {
+    if (id.startsWith("annotation:"))
+      annotationIds.add(id.slice("annotation:".length));
+    else {
+      const edge = document.graph.edges.find((e) => e.id === id);
+      if (edge) tableIds.add(edge.source).add(edge.target);
+      else tableIds.add(id);
+    }
+  }
+  const edges = document.graph.edges.filter((edge) =>
+    tableIds.has(edge.source),
+  );
+  const included = new Set(tableIds);
+  for (const edge of edges) included.add(edge.target);
+  const layout: SchemaLayout = {};
+  for (const id of tableIds)
+    if (Object.hasOwn(document.layout, id)) layout[id] = document.layout[id]!;
+  return structuredClone({
+    graph: {
+      tables: document.graph.tables.filter((table) => included.has(table.id)),
+      edges,
+      warnings: [],
+    },
+    layout,
+    annotations: document.annotations.filter((a) => annotationIds.has(a.id)),
+  });
 }
 
 export type CanvasProposalRebase = {
@@ -451,17 +645,41 @@ export type CanvasProposalRebase = {
   merged: number[];
 };
 
+type RebaseBase = {
+  layout: SchemaLayout;
+  graph: { edges: SchemaEdge[] };
+  annotations: SchemaAnnotation[];
+};
+function rebaseBase(base: CanvasDocument | CanvasProposalBase): RebaseBase {
+  if ("graph" in base) return base;
+  const layout: SchemaLayout = {};
+  for (const [id, entry] of Object.entries(base.layout))
+    if (entry) layout[id] = entry;
+  return {
+    layout,
+    graph: {
+      edges: Object.values(base.edges).filter(
+        (edge): edge is SchemaEdge => edge !== null,
+      ),
+    },
+    annotations: Object.values(base.annotations).filter(
+      (annotation): annotation is SchemaAnnotation => annotation !== null,
+    ),
+  };
+}
+
 /**
  * Field-level preconditions: an operation conflicts only when the field it writes
  * changed since the proposal's base (or its target disappeared). Edits elsewhere on
  * the board, moves of a documented table, and unrelated graph changes never block.
- * Markdown edited on both sides is merged line by line when the edits do not overlap.
+ * Markdown edited on both sides is merged by line when the edits do not overlap.
  */
 export function rebaseCanvasProposal(
-  base: CanvasDocument,
+  baseline: CanvasDocument | CanvasProposalBase,
   current: CanvasDocument,
   operations: readonly CanvasProposalOperation[],
 ): CanvasProposalRebase {
+  const base = rebaseBase(baseline);
   const equal = (a: unknown, b: unknown) =>
     canonicalCanvasJson(a ?? null) === canonicalCanvasJson(b ?? null);
   const conflicts: CanvasProposalConflict[] = [];

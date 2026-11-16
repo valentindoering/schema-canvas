@@ -141,7 +141,13 @@ export type SchemaCanvasLabels = {
   reviewUnsaved: string;
   backToSuggestions: string;
   proposedBy: string;
+  /** Lead-in of the stale warning, e.g. "Out of date." */
+  staleTitle: string;
   staleProposal: string;
+  /** Button on a stale suggestion that asks its agent to propose again on the current text. */
+  requestRebase: string;
+  /** Followed by the agent's name once a rebase was requested. */
+  rebaseRequested: string;
   reviewPreview: string;
   reviewChanges: string;
   reviewCanvas: string;
@@ -381,8 +387,11 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   reviewUnsaved: "Finish saving your edits before deciding a suggestion.",
   backToSuggestions: "All suggestions",
   proposedBy: "Proposed by",
+  staleTitle: "Out of date.",
   staleProposal:
-    "Since this suggestion, someone edited the same field. Decline it or ask for a new suggestion.",
+    "The same lines were edited by hand since this suggestion, so it can no longer be applied. Decline it, or ask the agent to redo it on the current text.",
+  requestRebase: "Ask agent to rebase",
+  rebaseRequested: "Rebase on the current text requested from",
   reviewPreview: "Preview",
   reviewChanges: "Changes",
   reviewCanvas: "Canvas",

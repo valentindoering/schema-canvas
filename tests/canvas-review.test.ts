@@ -217,9 +217,9 @@ describe("proposal-only agent capabilities", () => {
     const refreshed = await service.openReview(second.id, "human:reviewer");
     expect(refreshed.stale).toBe(false);
     expect(refreshed.currentRevision).not.toBe(refreshed.baseRevision);
-    expect(refreshed.before.layout.projects!.markdown).toContain(
-      "Project ownership",
-    );
+    // Reviews carry only the objects they touch, not the whole canvas.
+    expect(refreshed.before.layout.projects).toBeUndefined();
+    expect(refreshed.before.layout.accounts!.markdown).toBeUndefined();
     expect(refreshed.after.layout.accounts!.markdown).toBe("# Account guide");
     // The reviewed object is unchanged, so the original exact receipt also stays valid.
     await service.accept(
@@ -436,19 +436,21 @@ describe("proposal-only agent capabilities", () => {
     );
     expect((await service.readDocument()).document).toEqual(canvasDocument);
     const stored = await store.read();
-    expect(stored.proposals.find((p) => p.id === mine.id)!.baseDocument).toBe(
+    expect(stored.proposals.find((p) => p.id === mine.id)!.base).toBe(
       undefined,
     );
-    expect(
-      stored.proposals.find((p) => p.id === theirs.id)!.baseDocument,
-    ).toBeDefined();
+    expect(stored.proposals.find((p) => p.id === theirs.id)!.base).toEqual({
+      layout: { projects: canvasDocument.layout.projects },
+      edges: {},
+      annotations: {},
+    });
   });
   it("rejects a stored baseline modified after human review", async () => {
     const { service, agent, input, store } = await setup();
     const proposal = await agent.propose(input);
     const review = await service.openReview(proposal.id, "human:reviewer");
     await store.transact(async (state) => {
-      state.proposals[0]!.baseDocument!.layout.projects!.x += 20;
+      state.proposals[0]!.base!.layout.projects!.markdown = "Tampered";
       return { state, result: undefined };
     });
     await expect(
@@ -456,7 +458,7 @@ describe("proposal-only agent capabilities", () => {
         { proposalId: proposal.id, reviewToken: review.reviewToken },
         "human:reviewer",
       ),
-    ).rejects.toThrow("baseline does not match");
+    ).rejects.toThrow("Open this exact proposal");
     expect((await service.readDocument()).document).toEqual(canvasDocument);
   });
   it("rejects expired or modified proposals without writing their changes", async () => {

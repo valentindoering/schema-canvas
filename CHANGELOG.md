@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.6.0
+
+- Make accepting a suggestion fast on large canvases. A pending proposal now
+  stores only the base values of the objects it writes instead of a full copy
+  of the document, and a review returns focused before/after documents (the
+  touched tables, arrows and annotations) instead of two full documents. On a
+  generated 200-table canvas (0.76 MB) with eight pending table-note
+  suggestions, accepting one took 76 ms instead of 614 ms, and refreshing the
+  other seven cards afterwards 0.5 s instead of 2.7 s of server time. The
+  ledger shrank from 9.2 MB to 24 KB and one review payload from 1.5 MB to
+  13 KB. `tests/review-scale.test.ts` guards this.
+- Accept and Decline show a spinner and are disabled while the decision saves;
+  the card leaves once it has saved. Decisions still save one at a time and the
+  canvas and other cards stay usable.
+- Merge a suggestion with hand edits of the same note more reliably: edits of
+  neighbouring lines combine, insertions at the same place keep both (hand-written
+  lines first), and lines the rich-text editor only re-serialized (escaped `_`
+  and `>`, trailing spaces, bullet characters) count as unchanged. Only edits of
+  the same line conflict.
+- Mark a conflicting suggestion clearly as out of date, with the conflicting
+  fields and an optional **Ask agent to rebase** button (`onRequestRebase`,
+  `service.requestRebase`). The agent sees `rebaseRequest` and the conflicts in
+  `list_canvas_proposals` and is told to propose again on the current text.
+- Mark added and removed words inside changed lines of a documentation diff.
+  The diff shows at full height; the suggestion list is the one scroll area.
+- Tab and Shift+Tab nest and un-nest list items in both the inline and the
+  expanded Markdown editor, handled before any other key binding and without
+  letting host focus traps move focus. In Markdown source, Tab and Shift+Tab
+  indent and outdent list lines.
+
+Stored ledgers need no manual migration: pending proposals with a full
+`baseDocument` load unchanged and are rewritten with the compact `base` on the
+next ledger write. A ledger written by 0.6.0 cannot be read by 0.5.x.
+`StoredCanvasProposal.baseDocument` is replaced by `base`; `CanvasProposal` adds
+an optional `rebaseRequest`; `CanvasProposalReview.before` and `after` are
+focused documents rather than the whole canvas. The review receipt now also
+covers the stored base, so receipts issued by 0.5.x must be reopened (the panel
+does this by itself).
+
 ## 0.5.0
 
 - Decide suggestion staleness per field. An operation is blocked only when the

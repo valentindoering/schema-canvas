@@ -298,9 +298,7 @@ test("rejection preserves documentation and stale suggestions cannot be applied"
     name: "Suggestions",
     exact: true,
   });
-  await expect(panel.getByRole("alert")).toContainText(
-    "someone edited the same field",
-  );
+  await expect(panel.getByRole("alert")).toContainText("Out of date.");
   await expect(panel.getByRole("alert")).toContainText(
     "Voyages: Documentation",
   );

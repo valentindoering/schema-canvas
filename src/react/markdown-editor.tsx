@@ -1,45 +1,97 @@
+import type { EditorView } from "@tiptap/pm/view";
+import { liftListItem, sinkListItem } from "@tiptap/pm/schema-list";
 import { Markdown } from "@tiptap/markdown";
-import {
-  EditorContent,
-  Extension,
-  useEditor,
-  useEditorState,
-} from "@tiptap/react";
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import type { MarkdownEditorProps } from "./markdown-field.js";
 
 /**
- * Inside a list, Tab and Shift+Tab indent and outdent the item like a normal
- * editor and never move focus out. On the first item, which cannot be indented,
+ * Inside a list, Tab and Shift+Tab nest and un-nest the item like a normal
+ * editor and never move focus out. On the first item, which cannot be nested,
  * Tab does nothing. Outside lists, Tab keeps moving focus (no keyboard trap).
+ *
+ * This runs as a view prop, before every plugin keymap, and stops the event so
+ * host focus traps (dialogs, sheets, focus scopes) cannot move focus either.
  */
-const ListIndentation = Extension.create({
-  name: "schemaCanvasListIndentation",
-  priority: 1000,
-  addKeyboardShortcuts() {
-    const inList = () =>
-      this.editor.isActive("bulletList") || this.editor.isActive("orderedList");
-    return {
-      Tab: () => {
-        if (!inList()) return false;
-        this.editor.commands.sinkListItem("listItem");
-        return true;
-      },
-      "Shift-Tab": () => {
-        if (!inList()) return false;
-        const { $from } = this.editor.state.selection;
-        let items = 0;
-        for (let depth = $from.depth; depth > 0; depth--)
-          if ($from.node(depth).type.name === "listItem") items++;
-        // A top-level item stays a list item; Backspace removes its bullet.
-        if (items > 1) this.editor.commands.liftListItem("listItem");
-        return true;
-      },
-    };
-  },
-});
+export function handleListTab(view: EditorView, event: KeyboardEvent) {
+  if (
+    event.key !== "Tab" ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.isComposing
+  )
+    return false;
+  const { state } = view;
+  const listItem = state.schema.nodes.listItem;
+  if (!listItem) return false;
+  const { $from } = state.selection;
+  let items = 0;
+  for (let depth = $from.depth; depth > 0; depth--)
+    if ($from.node(depth).type === listItem) items++;
+  if (!items) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.shiftKey) sinkListItem(listItem)(state, view.dispatch);
+  // A top-level item stays a list item; Backspace removes its bullet.
+  else if (items > 1) liftListItem(listItem)(state, view.dispatch);
+  return true;
+}
+
+const listLine = /^(\s*)([-*+]|\d+[.)])(\s|$)/;
+
+/**
+ * The same keys in Markdown source: on list lines, Tab nests by two spaces and
+ * Shift+Tab un-nests. Other lines keep Tab for focus movement.
+ */
+export function handleSourceTab(
+  event: ReactKeyboardEvent<HTMLTextAreaElement>,
+  onChange: (markdown: string) => void,
+) {
+  if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey)
+    return;
+  const field = event.currentTarget;
+  const { value, selectionStart, selectionEnd } = field;
+  const first = value.lastIndexOf("\n", selectionStart - 1) + 1;
+  const endBreak = value.indexOf(
+    "\n",
+    Math.max(selectionStart, selectionEnd - 1),
+  );
+  const last = endBreak === -1 ? value.length : endBreak;
+  const lines = value.slice(first, last).split("\n");
+  if (!lines.some((line) => listLine.test(line))) return;
+  event.preventDefault();
+  event.stopPropagation();
+  let delta = 0;
+  let firstDelta = 0;
+  const next = lines.map((line, index) => {
+    if (!listLine.test(line)) return line;
+    const change = event.shiftKey
+      ? -Math.min(2, line.length - line.trimStart().length)
+      : 2;
+    if (index === 0) firstDelta = change;
+    delta += change;
+    return change >= 0
+      ? `${"  ".repeat(change / 2)}${line}`
+      : line.slice(-change);
+  });
+  if (!delta) return;
+  const markdown = value.slice(0, first) + next.join("\n") + value.slice(last);
+  onChange(markdown);
+  requestAnimationFrame(() => {
+    field.selectionStart = Math.max(first, selectionStart + firstDelta);
+    field.selectionEnd = Math.max(first, selectionEnd + delta);
+  });
+}
 
 export default function MarkdownEditor({
   label,
@@ -66,7 +118,6 @@ export default function MarkdownEditor({
         link: { openOnClick: false, autolink: false },
       }),
       Markdown,
-      ListIndentation,
     ],
     content: value,
     contentType: "markdown",
@@ -77,6 +128,7 @@ export default function MarkdownEditor({
         "aria-multiline": "true",
         class: "schema-canvas__markdown schema-canvas__rich-text",
       },
+      handleKeyDown: handleListTab,
     },
     onUpdate: ({ editor, transaction }) => {
       if (!transaction.docChanged) return;
@@ -142,6 +194,7 @@ export default function MarkdownEditor({
       aria-label={label}
       className="schema-canvas__markdown-source"
       value={value}
+      onKeyDown={(event) => handleSourceTab(event, onChange)}
       onChange={(event) => {
         const markdown = event.target.value;
         onChange(markdown);
