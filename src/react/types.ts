@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode, Ref } from "react";
 import type { CanvasProposalReviewControls } from "./canvas-proposal-inbox.js";
+import type { SchemaCanvasIconProps } from "./icons.js";
 
 import type {
   CanvasContext,
@@ -43,6 +44,17 @@ export type SchemaCanvasLabels = {
   paletteRose: string;
   paletteViolet: string;
   tableMarkdown: string;
+  icon: string;
+  iconColor: string;
+  textColor: string;
+  chooseIcon: string;
+  noIcon: string;
+  removeIcon: string;
+  searchIcons: string;
+  noMatchingIcons: string;
+  insertIcon: string;
+  unknownIcon: string;
+  unknownIconColor: string;
   fields: string;
   full: string;
   concise: string;
@@ -198,7 +210,7 @@ export type SchemaCanvasFeatures = {
   unpositionedTray: boolean;
 };
 
-export type SchemaCanvasProps = {
+export type SchemaCanvasProps = SchemaCanvasIconProps & {
   ref?: Ref<SchemaCanvasHandle>;
   /** Synchronous notification on enqueue and every save transition, even after unmount. */
   onSaveStateChange?: (state: SchemaCanvasSaveState) => void;
@@ -287,6 +299,17 @@ export const defaultSchemaCanvasLabels: SchemaCanvasLabels = {
   paletteRose: "Rose",
   paletteViolet: "Violet",
   tableMarkdown: "Table Markdown",
+  icon: "Icon",
+  iconColor: "Icon color",
+  textColor: "Text color",
+  chooseIcon: "Choose icon",
+  noIcon: "No icon",
+  removeIcon: "Remove icon",
+  searchIcons: "Search icons",
+  noMatchingIcons: "No matching icons",
+  insertIcon: "Insert icon",
+  unknownIcon: "Unknown icon",
+  unknownIconColor: "Unknown icon color",
   fields: "Fields",
   full: "Show all attributes",
   concise: "Show key attributes",

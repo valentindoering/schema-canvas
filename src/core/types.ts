@@ -95,6 +95,10 @@ export type SchemaTableLayout = {
   x: number;
   y: number;
   appearance?: SchemaTableAppearance;
+  /** A host icon name shown left of the table title, for example "landmark". */
+  icon?: string;
+  /** A host palette name for the icon, for example "amber"; never a CSS value. */
+  iconColor?: string;
   markdown?: string;
   fieldDisplay?: SchemaTableFieldDisplay;
   highlightedFields?: string[];

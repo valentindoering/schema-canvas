@@ -623,6 +623,16 @@
   text-align: center;
 }
 
+.schema-canvas__table-header:has(.schema-canvas__table-icon) {
+  grid-auto-flow: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.schema-canvas__table-icon {
+  font-size: 16px;
+}
+
 .schema-canvas__table-header strong {
   max-width: 100%;
   overflow: hidden;
@@ -2379,4 +2389,142 @@
   color: var(--schema-canvas-text-muted);
   background: var(--schema-canvas-surface-muted);
   font-size: 10px;
+}
+
+/* Host-supplied icons. Only the icon takes a palette colour. */
+.schema-canvas__icon {
+  display: inline-flex;
+  width: 1.15em;
+  height: 1.15em;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -0.2em;
+  line-height: 1;
+}
+
+.schema-canvas__icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.schema-canvas__icon--unknown-color {
+  border-radius: 3px;
+  outline: 1px dashed var(--schema-canvas-danger);
+  outline-offset: 1px;
+}
+
+.schema-canvas__icon-unknown {
+  padding: 0 3px;
+  border: 1px dashed var(--schema-canvas-danger);
+  border-radius: 4px;
+  color: var(--schema-canvas-danger);
+  font-family: var(--schema-canvas-mono);
+  font-size: 0.85em;
+  text-decoration: line-through dotted;
+}
+
+.schema-canvas__icon-field {
+  display: grid;
+  gap: 8px;
+}
+
+.schema-canvas__icon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.schema-canvas__icon-actions button,
+.schema-canvas__icon-grid button,
+.schema-canvas__icon-colors button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--schema-canvas-border);
+  border-radius: 7px;
+  color: var(--schema-canvas-text);
+  background: var(--schema-canvas-surface);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.schema-canvas__icon-actions .schema-canvas__icon {
+  font-size: 16px;
+}
+
+.schema-canvas__icon-picker {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--schema-canvas-border);
+  border-radius: 8px;
+  background: var(--schema-canvas-surface);
+}
+
+.schema-canvas__icon-picker input {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--schema-canvas-border);
+  border-radius: 6px;
+  color: var(--schema-canvas-text);
+  background: var(--schema-canvas-background);
+  font: inherit;
+  font-size: 12px;
+}
+
+.schema-canvas__icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.schema-canvas__icon-grid button {
+  padding: 4px;
+  font-size: 18px;
+}
+
+.schema-canvas__icon-grid button[aria-selected="true"],
+.schema-canvas__icon-colors button[aria-checked="true"] {
+  border-color: var(--schema-canvas-accent);
+  box-shadow: 0 0 0 2px var(--schema-canvas-accent-soft);
+}
+
+.schema-canvas__icon-picker-empty {
+  margin: 0;
+  color: var(--schema-canvas-text-muted);
+  font-size: 12px;
+}
+
+.schema-canvas__icon-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.schema-canvas__icon-colors button {
+  width: 30px;
+  padding: 0;
+}
+
+.schema-canvas__icon-color-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.schema-canvas__icon-color-swatch--text {
+  border: 2px solid var(--schema-canvas-text);
+}
+
+.schema-canvas__markdown-icon-picker {
+  margin: 6px 0;
 }

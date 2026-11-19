@@ -7,6 +7,7 @@ import {
 } from "@xyflow/react";
 
 import type { SchemaField, SchemaPortSide } from "../core/index.js";
+import { SchemaIcon, useIconsSupported } from "./icons.js";
 import { CanvasMarkdown } from "./markdown.js";
 import {
   handleId,
@@ -20,6 +21,7 @@ type AnnotationNode = Node<AnnotationNodeData, "schemaAnnotation">;
 
 export function SchemaTableNode({ data, selected }: NodeProps<TableNode>) {
   const fields = visibleFields(data);
+  const iconsSupported = useIconsSupported();
   const canExpand =
     data.fieldDisplay === "concise" && data.table.fields.length > fields.length;
   return (
@@ -34,6 +36,13 @@ export function SchemaTableNode({ data, selected }: NodeProps<TableNode>) {
           : {})}
       />
       <header className="schema-canvas__table-header">
+        {data.icon && iconsSupported ? (
+          <SchemaIcon
+            name={data.icon}
+            color={data.iconColor}
+            className="schema-canvas__table-icon"
+          />
+        ) : null}
         <strong>{data.table.label}</strong>
         {data.unpositioned ? (
           <span className="schema-canvas__new-table-dot" aria-hidden="true" />

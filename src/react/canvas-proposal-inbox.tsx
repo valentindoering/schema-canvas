@@ -12,6 +12,7 @@ import {
   type CanvasReviewDecision,
 } from "../core/index.js";
 import { CanvasMarkdown } from "./markdown.js";
+import { IconText, SchemaIcon } from "./icons.js";
 import { diffProposalText, proposalWordChanges } from "./proposal-diff.js";
 import type { SchemaCanvasLabels } from "./types.js";
 
@@ -105,6 +106,9 @@ function titleFor(change: CanvasProposalChange, review: CanvasProposalReview) {
         change.objectId))
   );
 }
+function stringOrUndefined(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
 function display(
   value: unknown,
   key: string,
@@ -157,19 +161,25 @@ function UnifiedDiff({
         {line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}
       </span>
       <span>
-        {words.has(index)
-          ? words
-              .get(index)!
-              .map((segment, part) =>
-                !segment.changed ? (
-                  segment.text
-                ) : line.kind === "added" ? (
-                  <ins key={part}>{segment.text}</ins>
-                ) : (
-                  <del key={part}>{segment.text}</del>
-                ),
-              )
-          : line.text || " "}
+        {words.has(index) ? (
+          words.get(index)!.map((segment, part) =>
+            !segment.changed ? (
+              <IconText key={part} text={segment.text} />
+            ) : line.kind === "added" ? (
+              <ins key={part}>
+                <IconText text={segment.text} />
+              </ins>
+            ) : (
+              <del key={part}>
+                <IconText text={segment.text} />
+              </del>
+            ),
+          )
+        ) : line.text ? (
+          <IconText text={line.text} />
+        ) : (
+          " "
+        )}
       </span>
     </span>
   );
@@ -240,6 +250,8 @@ function ChangeDetails({
   const names: Record<string, string> = {
     label: labels.label,
     appearance: labels.appearance,
+    icon: labels.icon,
+    iconColor: labels.iconColor,
     color: labels.color,
     hidden: labels.hidden,
     muted: labels.edgeTone,
@@ -297,9 +309,25 @@ function ChangeDetails({
             <p className="schema-canvas__proposal-property" key={key}>
               <span>{names[key] ?? key}</span>
               <span>
-                <del>{display(before[key], key, labels)}</del>{" "}
+                <del>
+                  {key === "icon" && typeof before.icon === "string" ? (
+                    <SchemaIcon
+                      name={before.icon}
+                      color={stringOrUndefined(before.iconColor)}
+                    />
+                  ) : null}{" "}
+                  {display(before[key], key, labels)}
+                </del>{" "}
                 <span aria-hidden="true">→</span>{" "}
-                <ins>{display(after[key], key, labels)}</ins>
+                <ins>
+                  {key === "icon" && typeof after.icon === "string" ? (
+                    <SchemaIcon
+                      name={after.icon}
+                      color={stringOrUndefined(after.iconColor)}
+                    />
+                  ) : null}{" "}
+                  {display(after[key], key, labels)}
+                </ins>
               </span>
             </p>
           ),
@@ -409,6 +437,7 @@ function conflictText(
     markdown: labels.reviewDocumentation,
     position: labels.reviewPosition,
     appearance: labels.appearance,
+    icon: labels.icon,
     label: labels.label,
     color: labels.color,
     hidden: labels.hidden,

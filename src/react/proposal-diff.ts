@@ -69,7 +69,12 @@ export function diffProposalText(
 export type ProposalDiffSegment = { text: string; changed: boolean };
 
 function tokens(line: string) {
-  return line.match(/\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) ?? [];
+  // An inline icon token is one word, so a changed icon is marked whole.
+  return (
+    line.match(
+      /:icon\[[a-z0-9-]+\](?:\{color=[a-z0-9-]+\})?|\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu,
+    ) ?? []
+  );
 }
 
 /**

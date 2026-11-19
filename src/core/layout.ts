@@ -1,3 +1,4 @@
+import { isSchemaIconColorName, isSchemaIconName } from "./icons.js";
 import {
   assertRecord,
   finiteNumber,
@@ -179,6 +180,21 @@ function applyTableSettings(
     entry.appearance = raw.appearance as NonNullable<
       SchemaTableLayout["appearance"]
     >;
+  }
+  // Additive: entries saved before table icons omit this field.
+  if (raw.icon !== undefined) {
+    if (!isSchemaIconName(raw.icon)) {
+      throw new Error(`Layout entry "${table.id}" has an invalid icon name.`);
+    }
+    entry.icon = raw.icon;
+  }
+  if (raw.iconColor !== undefined) {
+    if (!isSchemaIconColorName(raw.iconColor)) {
+      throw new Error(
+        `Layout entry "${table.id}" has an invalid icon colour name.`,
+      );
+    }
+    entry.iconColor = raw.iconColor;
   }
   // Additive layout migration: entries saved before table Markdown simply
   // omit this field. Preserve their shape until the host writes an edit.

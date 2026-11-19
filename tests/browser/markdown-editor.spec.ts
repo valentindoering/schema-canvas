@@ -300,3 +300,60 @@ test("the expanded editor is centered even with a host margin reset", async ({
     Math.abs(box.y + box.height / 2 - viewport.height / 2),
   ).toBeLessThanOrEqual(2);
 });
+
+test("inserts inline icons by typing and through the picker", async ({
+  page,
+}) => {
+  await page.goto("/?icons");
+  await page.getByTestId("mode").click();
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", {
+    name: "Table Markdown",
+    exact: true,
+  });
+  await content.click();
+  await content.pressSequentially("Dock :icon[anch");
+  await page.getByRole("option", { name: "anchor" }).click();
+  await expect(content.locator('[data-icon="anchor"]')).toBeVisible();
+  await content.pressSequentially(" and :icon[compass]");
+  await expect(content.locator('[data-icon="compass"]')).toBeVisible();
+  await page.getByRole("button", { name: "Insert icon" }).click();
+  await page.getByRole("radio", { name: "teal" }).click();
+  await page.getByRole("searchbox", { name: "Search icons" }).fill("link");
+  await page.getByRole("option", { name: "link-2" }).click();
+  await expect(content.locator('[data-icon="link-2"]')).toHaveCSS(
+    "color",
+    "rgb(15, 118, 110)",
+  );
+  await expect(page.getByTestId("layout")).toContainText(
+    "Dock :icon[anchor] and :icon[compass]:icon[link-2]{color=teal}",
+  );
+  await expect(
+    page.locator(
+      '[aria-label="Projects"] .schema-canvas__table-markdown [data-icon="link-2"]',
+    ),
+  ).toBeVisible();
+});
+
+test("marks unknown inline icons and colours in the editor", async ({
+  page,
+}) => {
+  await page.goto(
+    `/?icons&markdown=${encodeURIComponent("A :icon[kraken] and :icon[anchor]{color=plaid}")}`,
+  );
+  await expect(
+    page.locator('[aria-label="Projects"] .schema-canvas__icon-unknown'),
+  ).toHaveText(":icon[kraken]");
+  await page.getByTestId("mode").click();
+  await page.getByText("Projects", { exact: true }).click();
+  const content = page.getByRole("textbox", {
+    name: "Table Markdown",
+    exact: true,
+  });
+  await expect(content.locator(".schema-canvas__icon-unknown")).toHaveText(
+    ":icon[kraken]",
+  );
+  await expect(
+    content.locator(".schema-canvas__icon--unknown-color"),
+  ).toHaveAttribute("title", "anchor (Unknown icon color: plaid)");
+});

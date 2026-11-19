@@ -18,6 +18,8 @@ are packed, tested, inspected, and consumer-verified before publication.
   explicit edge muting, and edge visibility controls.
 - Source definition popup with syntax highlighting for TypeScript, JavaScript,
   SQL, JSON, HTML, CSS, YAML, shell, and Python files.
+- Host-supplied icons: one per table header, and inline icons in table and
+  annotation Markdown, each with an optional palette colour.
 - Frames, Markdown notes, Markdown text, and image annotations with direct on-canvas
   resize. Their numeric dimensions remain part of the serialized model.
 - Image replacement, visible upload errors, and aspect-ratio-preserving image resize.
@@ -136,6 +138,56 @@ cannot load, an editable source field remains available with an error message.
 No persisted-format migration is needed.
 The appearance editor uses icon-only swatches for three neutral presets and
 six coordinated colors. Hosts may override their CSS colors.
+
+## Icons
+
+The package ships no icon library. The host supplies icons by name:
+
+```tsx
+import { icons } from "lucide-react"; // or any other icon set
+
+const iconNames = Object.keys(icons).map(toKebabCase); // "link-2", "landmark", …
+
+<SchemaCanvas
+  {...diagramProps}
+  renderIcon={(name) => {
+    const Icon = icons[toPascalCase(name)];
+    return Icon ? <Icon strokeWidth={2} /> : null;
+  }}
+  iconNames={iconNames}
+  iconColors={{ amber: "var(--amber-600)", teal: "var(--teal-600)" }}
+/>;
+```
+
+- `renderIcon(name)` returns the icon, or `null` for a name it does not know.
+- `iconNames` lists every name the host can render. The pickers offer them,
+  and names outside it count as unknown.
+- `iconColors` maps palette names to CSS colour values. Use CSS variables so
+  colours follow light and dark mode. Only the icon is coloured; the table card,
+  header and text keep their colours.
+
+Icon and colour names are lowercase kebab-case (`link-2`, `amber`), at most 64
+characters. Stored data holds only names, never SVG or CSS values.
+
+**Table icon.** `layout[tableId].icon` names an icon shown left of the table
+title, with the name as tooltip. `layout[tableId].iconColor` optionally names
+its colour. In writable mode the table editor offers an icon picker with
+search, a colour choice, and **Remove icon**. Existing layouts without these
+fields remain valid.
+
+**Inline icons.** Table, note, and text Markdown can contain the token
+`:icon[name]` or `:icon[name]{color=amber}`. It is stored as plain text, so
+diffs, suggestions, and the agent context stay readable. The read view and the
+suggestion diff render it as the icon; inside a code span it stays text. Without
+`color` the icon takes the text colour. In the rich-text editor a token is an
+inline atom: insert one with the **Icon** toolbar button, or type `:icon[` and
+pick from the list that opens. Typing a complete `:icon[name]` also converts
+it. The atom serializes back to the exact token, including its colour.
+
+Without `renderIcon`, tokens show as their text and table headers show no icon.
+A name the host does not know shows as its token text with a dashed red mark,
+never silently dropped. An unknown colour name renders in the text colour; the
+editor marks it with a dashed outline. Raw HTML and images stay disabled.
 
 Without a saved port choice, each arrow compares the actual table bounds and
 the available port positions. It favors short connections that leave and enter
@@ -549,7 +601,7 @@ writer, verify that it is stopped before removing its `.lock` file. Malformed
 state and unsupported versions fail; no data is silently reset. The host can
 archive decided proposals before the 1000-entry ledger limit is reached.
 
-Proposal operations are restricted to table documentation, placement and
+Proposal operations are restricted to table documentation, icon, placement and
 appearance; arrow presentation; and adding/updating/deleting annotations.
 Agents cannot alter schema declarations or arbitrary JSON paths. Asset URLs and
 new image annotations are excluded from proposal operations. Each pending
@@ -626,6 +678,7 @@ it writes, against the proposal's stored baseline:
 | Operation              | Blocks only when, since the proposal                                                     |
 | ---------------------- | ---------------------------------------------------------------------------------------- |
 | `set_table_markdown`   | that table's Markdown changed and cannot be merged, or the table is gone                 |
+| `set_table_icon`       | that table's icon or icon colour changed                                                 |
 | `move_table`           | that table's position changed                                                            |
 | `set_table_appearance` | that table's appearance changed                                                          |
 | `update_edge`          | the arrow setting it writes changed, or the arrow is gone                                |
@@ -663,6 +716,12 @@ its buttons. For stronger separation, keep authority storage outside the agent's
 writable workspace and require an independent user-presence check (for example,
 a host-verified WebAuthn assertion) on the approval endpoint. No UI can prove that
 someone actually read a change. The package does not claim otherwise.
+
+A table icon is proposed with
+`{ op: "set_table_icon", tableId, icon, iconColor? }`. It sets the icon and its
+colour together: omitting `iconColor` means the text colour, and `icon: null`
+removes both. The agent context reports each table's icon and colour, and its
+policy explains the inline token syntax.
 
 ### Expose MCP tools
 
