@@ -22,6 +22,8 @@
   `set_table_markdown` and stale only when the icon or its colour changed. The
   agent context reports each table's icon and colour, and its policy explains
   the inline syntax.
+- The Convex adapter parses and scans each imported module once, instead of
+  once per importing file.
 
 Stored layouts need no migration: `icon` and `iconColor` are optional and
 validated as lowercase kebab-case names. A layout that uses them cannot be read

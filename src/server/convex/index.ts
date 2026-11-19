@@ -339,6 +339,21 @@ function collectDeclarationsRecursively(
 ) {
   const declarations = new Map<string, ValidatorDeclaration>();
   const visited = new Set<string>();
+  // Parse and scan each module once: schemas whose files share helpers import
+  // the same module from many places.
+  const parsed = new Map<string, ts.SourceFile | null>([
+    [entryPoint, sourceFile],
+  ]);
+  const localDeclarations = new Map<
+    ts.SourceFile,
+    ReturnType<typeof collectDeclarations>
+  >();
+  const declarationsOf = (file: ts.SourceFile) => {
+    let local = localDeclarations.get(file);
+    if (!local)
+      localDeclarations.set(file, (local = collectDeclarations(file)));
+    return local;
+  };
   visit(entryPoint, sourceFile, true);
   return declarations;
 
@@ -349,7 +364,7 @@ function collectDeclarationsRecursively(
   ) {
     if (visited.has(filePath)) return;
     visited.add(filePath);
-    const local = collectDeclarations(file);
+    const local = declarationsOf(file);
     for (const [name, declaration] of local)
       declarations.set(`${filePath}:${name}`, declaration);
     if (!followImports) return;
@@ -360,19 +375,26 @@ function collectDeclarationsRecursively(
         ? resolveLocalImport(path.dirname(filePath), specifier, reader)
         : `/virtual/node_modules/${specifier}.ts`;
       if (!importedPath) continue;
-      const source = specifier.startsWith(".")
-        ? reader.readFile(importedPath)
-        : moduleSources[specifier];
-      if (source === undefined) continue;
-      const importedFile = ts.createSourceFile(
-        importedPath,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      );
+      let importedFile = parsed.get(importedPath);
+      if (importedFile === undefined) {
+        const source = specifier.startsWith(".")
+          ? reader.readFile(importedPath)
+          : moduleSources[specifier];
+        importedFile =
+          source === undefined
+            ? null
+            : ts.createSourceFile(
+                importedPath,
+                source,
+                ts.ScriptTarget.Latest,
+                true,
+                ts.ScriptKind.TS,
+              );
+        parsed.set(importedPath, importedFile);
+      }
+      if (importedFile === null) continue;
       visit(importedPath, importedFile, followTransitiveImports);
-      const imported = collectDeclarations(importedFile);
+      const imported = declarationsOf(importedFile);
       const bindings = statement.importClause?.namedBindings;
       if (bindings && ts.isNamedImports(bindings)) {
         for (const item of bindings.elements) {
