@@ -52,6 +52,8 @@ import {
 } from "./model.js";
 import { SchemaAnnotationNode, SchemaTableNode } from "./nodes.js";
 import { MarkdownField } from "./markdown-field.js";
+import { IconColorPicker, IconPicker } from "./icon-picker.js";
+import { SchemaIcon, SchemaIconProvider, useSchemaIcons } from "./icons.js";
 import { CanvasContextPanel } from "./canvas-context-panel.js";
 import {
   CanvasProposalInbox,
@@ -118,6 +120,9 @@ function SchemaCanvasInner({
   renderTableDetails,
   onLoadTableDefinition,
   proposalReview,
+  renderIcon,
+  iconNames,
+  iconColors,
   className,
   style,
 }: SchemaCanvasProps) {
@@ -1088,592 +1093,612 @@ function SchemaCanvasInner({
   };
 
   return (
-    <section
-      ref={canvasRoot}
-      className={[
-        "schema-canvas",
-        reconnecting ? "schema-canvas--reconnecting" : "",
-        features.navigationControls ? "" : "schema-canvas--no-navigation",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      style={style}
-      data-theme={theme}
-      aria-label={labels.canvasLabel}
-      tabIndex={0}
-      onKeyDown={onCanvasKeyDown}
+    <SchemaIconProvider
+      {...(renderIcon ? { renderIcon } : {})}
+      {...(iconNames ? { iconNames } : {})}
+      {...(iconColors ? { iconColors } : {})}
+      unknownIcon={labels.unknownIcon}
+      unknownIconColor={labels.unknownIconColor}
     >
-      {features.themeToggle &&
-      (controlledTheme === undefined || onThemeChange) ? (
-        <button
-          className="schema-canvas__theme-toggle"
-          type="button"
-          aria-label={
-            theme === "light"
-              ? labels.switchToDarkTheme
-              : labels.switchToLightTheme
-          }
-          title={
-            theme === "light"
-              ? labels.switchToDarkTheme
-              : labels.switchToLightTheme
-          }
-          aria-pressed={theme === "dark"}
-          onClick={toggleTheme}
-        >
-          <ThemeIcon theme={theme} />
-        </button>
-      ) : null}
-      {features.canvasToolbar ? (
-        <div className="schema-canvas__toolbar">
-          {views.length > 1 ? (
-            <label>
-              <span>{labels.view}</span>
-              <select
-                value={selectedView.id}
-                onChange={(event) => {
-                  setSelectedViewId(event.target.value);
-                  setSelectedNodeId(null);
-                  setSelectedTableIds(new Set());
-                  setSelectedEdgeId(null);
-                  onSelectedTableChange?.(null);
-                }}
-              >
-                {views.map((view) => (
-                  <option key={view.id} value={view.id}>
-                    {view.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <button type="button" onClick={() => void fitView({ duration: 250 })}>
-            {labels.fit}
-          </button>
-          {features.autoLayout && writable ? (
-            <button type="button" onClick={() => void arrange()}>
-              {labels.arrange}
-            </button>
-          ) : null}
-          {writable ? (
-            <button type="button" onClick={showAllEdges}>
-              {labels.showAllEdges}
-            </button>
-          ) : null}
-          {features.annotations && writable ? (
-            <div className="schema-canvas__toolbar-group">
-              <button type="button" onClick={() => addAnnotation("frame")}>
-                {labels.addFrame}
-              </button>
-              <button type="button" onClick={() => addAnnotation("note")}>
-                {labels.addNote}
-              </button>
-              <button type="button" onClick={() => addAnnotation("text")}>
-                {labels.addText}
-              </button>
-              {features.imageAnnotations && onUploadImage ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => fileInput.current?.click()}
-                  >
-                    {labels.addImage}
-                  </button>
-                  <input
-                    ref={fileInput}
-                    className="schema-canvas__file-input"
-                    type="file"
-                    accept="image/*"
-                    aria-label={labels.uploadImage}
-                    onChange={(event) => void uploadImage(event)}
-                  />
-                </>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div
-        className="schema-canvas__search"
-        role="toolbar"
-        aria-label={labels.canvasActions}
+      <section
+        ref={canvasRoot}
+        className={[
+          "schema-canvas",
+          reconnecting ? "schema-canvas--reconnecting" : "",
+          features.navigationControls ? "" : "schema-canvas--no-navigation",
+          className,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={style}
+        data-theme={theme}
+        aria-label={labels.canvasLabel}
+        tabIndex={0}
+        onKeyDown={onCanvasKeyDown}
       >
-        <div className="schema-canvas__search-control">
-          {searchOpen ? (
-            <input
-              autoFocus
-              type="search"
-              value={searchQuery}
-              aria-label={labels.searchTables}
-              placeholder={labels.searchTables}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSearchOpen(false);
-                  setSearchQuery("");
-                }
-                if (event.key === "Enter") {
-                  const first = searchableTables.find(
-                    (table) =>
-                      table.label
-                        .toLocaleLowerCase()
-                        .includes(normalizedSearchQuery) ||
-                      table.id
-                        .toLocaleLowerCase()
-                        .includes(normalizedSearchQuery),
-                  );
-                  if (normalizedSearchQuery && first) selectTable(first.id);
-                }
-              }}
-            />
-          ) : null}
+        {features.themeToggle &&
+        (controlledTheme === undefined || onThemeChange) ? (
           <button
+            className="schema-canvas__theme-toggle"
             type="button"
-            aria-label={searchOpen ? labels.closeSearch : labels.searchTables}
-            onClick={() => {
-              setSearchOpen((open) => !open);
-              setSearchQuery("");
-            }}
+            aria-label={
+              theme === "light"
+                ? labels.switchToDarkTheme
+                : labels.switchToLightTheme
+            }
+            title={
+              theme === "light"
+                ? labels.switchToDarkTheme
+                : labels.switchToLightTheme
+            }
+            aria-pressed={theme === "dark"}
+            onClick={toggleTheme}
           >
-            {searchOpen ? (
-              <span aria-hidden="true">×</span>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="10.8" cy="10.8" r="6.3" />
-                <path d="m15.5 15.5 5 5" />
-              </svg>
-            )}
+            <ThemeIcon theme={theme} />
           </button>
-          {features.contextExport ? (
+        ) : null}
+        {features.canvasToolbar ? (
+          <div className="schema-canvas__toolbar">
+            {views.length > 1 ? (
+              <label>
+                <span>{labels.view}</span>
+                <select
+                  value={selectedView.id}
+                  onChange={(event) => {
+                    setSelectedViewId(event.target.value);
+                    setSelectedNodeId(null);
+                    setSelectedTableIds(new Set());
+                    setSelectedEdgeId(null);
+                    onSelectedTableChange?.(null);
+                  }}
+                >
+                  {views.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <button
               type="button"
-              className="schema-canvas__context-button"
-              onClick={() => {
-                setContextQuery(
-                  selectedTableIds.size
-                    ? { tableIds: [...selectedTableIds] }
-                    : selectedNodeId?.startsWith("annotation:")
-                      ? {
-                          annotationIds: [
-                            selectedNodeId.slice("annotation:".length),
-                          ],
-                        }
-                      : { view: selectedView.id },
-                );
-              }}
+              onClick={() => void fitView({ duration: 250 })}
             >
-              {labels.aiContext}
+              {labels.fit}
             </button>
-          ) : null}
-          {writable ? (
-            <>
-              <button
-                type="button"
-                aria-label="Undo"
-                title="Undo (⌘/Ctrl+Z)"
-                disabled={!editHistory.current.canUndo}
-                onClick={undo}
-              >
-                <HistoryIcon direction="undo" />
+            {features.autoLayout && writable ? (
+              <button type="button" onClick={() => void arrange()}>
+                {labels.arrange}
               </button>
-              <button
-                type="button"
-                aria-label="Redo"
-                title="Redo (⌘/Ctrl+Shift+Z)"
-                disabled={!editHistory.current.canRedo}
-                onClick={redo}
-              >
-                <HistoryIcon direction="redo" />
+            ) : null}
+            {writable ? (
+              <button type="button" onClick={showAllEdges}>
+                {labels.showAllEdges}
               </button>
-            </>
-          ) : null}
-        </div>
-        {searchOpen &&
-        normalizedSearchQuery === debouncedSearchQuery &&
-        normalizedSearchQuery ? (
-          <div className="schema-canvas__search-results">
-            {searchResults.length ? (
-              searchResults.map((table) => (
-                <button
-                  key={table.id}
-                  type="button"
-                  onClick={() => selectTable(table.id)}
-                >
-                  <span>{table.label}</span>
-                  {table.id !== table.label ? <small>{table.id}</small> : null}
+            ) : null}
+            {features.annotations && writable ? (
+              <div className="schema-canvas__toolbar-group">
+                <button type="button" onClick={() => addAnnotation("frame")}>
+                  {labels.addFrame}
                 </button>
-              ))
-            ) : (
-              <p>{labels.noMatchingTables}</p>
-            )}
+                <button type="button" onClick={() => addAnnotation("note")}>
+                  {labels.addNote}
+                </button>
+                <button type="button" onClick={() => addAnnotation("text")}>
+                  {labels.addText}
+                </button>
+                {features.imageAnnotations && onUploadImage ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      {labels.addImage}
+                    </button>
+                    <input
+                      ref={fileInput}
+                      className="schema-canvas__file-input"
+                      type="file"
+                      accept="image/*"
+                      aria-label={labels.uploadImage}
+                      onChange={(event) => void uploadImage(event)}
+                    />
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
-      </div>
 
-      {features.unpositionedTray && model.unpositionedTableIds.length ? (
-        <aside className="schema-canvas__tray">
-          <strong>{labels.unpositionedTables}</strong>
-          {model.unpositionedTableIds.map((tableId) => (
+        <div
+          className="schema-canvas__search"
+          role="toolbar"
+          aria-label={labels.canvasActions}
+        >
+          <div className="schema-canvas__search-control">
+            {searchOpen ? (
+              <input
+                autoFocus
+                type="search"
+                value={searchQuery}
+                aria-label={labels.searchTables}
+                placeholder={labels.searchTables}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setSearchOpen(false);
+                    setSearchQuery("");
+                  }
+                  if (event.key === "Enter") {
+                    const first = searchableTables.find(
+                      (table) =>
+                        table.label
+                          .toLocaleLowerCase()
+                          .includes(normalizedSearchQuery) ||
+                        table.id
+                          .toLocaleLowerCase()
+                          .includes(normalizedSearchQuery),
+                    );
+                    if (normalizedSearchQuery && first) selectTable(first.id);
+                  }
+                }}
+              />
+            ) : null}
             <button
-              key={tableId}
               type="button"
+              aria-label={searchOpen ? labels.closeSearch : labels.searchTables}
               onClick={() => {
-                setSelectedNodeId(tableId);
-                setSelectedTableIds(new Set([tableId]));
-                void fitView({ nodes: [{ id: tableId }], duration: 250 });
+                setSearchOpen((open) => !open);
+                setSearchQuery("");
               }}
             >
-              {graph.tables.find((table) => table.id === tableId)?.label ??
-                tableId}
+              {searchOpen ? (
+                <span aria-hidden="true">×</span>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="10.8" cy="10.8" r="6.3" />
+                  <path d="m15.5 15.5 5 5" />
+                </svg>
+              )}
             </button>
-          ))}
-        </aside>
-      ) : null}
-
-      <ReactFlow<CanvasNode, CanvasEdge>
-        colorMode={theme}
-        className={
-          features.background ? "schema-canvas__background" : undefined
-        }
-        style={{ backgroundSize: `${gridSize}px ${gridSize}px` }}
-        onInit={setReactFlow}
-        nodes={model.nodes}
-        edges={model.edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onNodeClick={onNodeClick}
-        onNodeDragStart={showDragHint}
-        onNodeDragStop={hideDragHint}
-        onSelectionStart={showDragHint}
-        onSelectionEnd={hideDragHint}
-        onEdgeClick={onEdgeClick}
-        onReconnect={onReconnect}
-        onReconnectStart={onReconnectStart}
-        onReconnectEnd={onReconnectEnd}
-        onPaneClick={() => {
-          setSelectedNodeId(null);
-          setSelectedTableIds(new Set());
-          setSelectedEdgeId(null);
-          onSelectedTableChange?.(null);
-        }}
-        snapToGrid
-        snapGrid={[gridSize, gridSize]}
-        nodesDraggable={writable}
-        nodesConnectable={writable}
-        edgesReconnectable={writable}
-        reconnectRadius={10}
-        connectionRadius={28}
-        isValidConnection={(connection) =>
-          graph.edges.some(
-            (edge) =>
-              edge.source === connection.source &&
-              edge.target === connection.target,
-          )
-        }
-        elementsSelectable
-        selectionOnDrag={writable}
-        deleteKeyCode={null}
-        multiSelectionKeyCode="Shift"
-        minZoom={0.08}
-        maxZoom={2}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
-        panOnScroll
-        selectionKeyCode="Shift"
-        zoomOnScroll={false}
-        zoomOnPinch
-        elevateNodesOnSelect={false}
-        elevateEdgesOnSelect
-        aria-label={labels.canvasLabel}
-      >
-        {features.minimap ? <MiniMap pannable zoomable /> : null}
-        {features.navigationControls ? (
-          <Controls
-            className="schema-canvas__navigation"
-            position="bottom-center"
-            orientation="horizontal"
-            showInteractive={false}
-            fitViewOptions={{ padding: 0.15, duration: 250 }}
-          />
-        ) : null}
-      </ReactFlow>
-
-      {contextQuery ? (
-        <CanvasContextPanel
-          readContext={readContext}
-          query={contextQuery}
-          labels={labels}
-          onClose={() => setContextQuery(null)}
-        />
-      ) : null}
-      {proposalReview ? (
-        <CanvasProposalInbox
-          controls={proposalReview}
-          labels={labels}
-          hasUnsavedChanges={handle.getSaveState().dirty}
-          documentVersion={`${layoutQueue.getRevision() ?? ""}|${annotationQueue.getRevision() ?? ""}`}
-          onNavigate={(location) => {
-            const matchingView =
-              views.find(
-                (view) =>
-                  location.tableIds.length &&
-                  location.tableIds.every((id) => view.tableIds.includes(id)),
-              ) ??
-              views.find((view) =>
-                location.tableIds.some((id) => view.tableIds.includes(id)),
-              );
-            if (matchingView) setSelectedViewId(matchingView.id);
-            setSelectedNodeId(null);
-            setSelectedTableIds(new Set(location.tableIds));
-            setSelectedEdgeId(null);
-            setDefinitionTableId(null);
-            setSearchOpen(false);
-            setSearchQuery("");
-            setProposalLocation(location);
-            onSelectedTableChange?.(location.tableIds[0] ?? null);
-          }}
-        />
-      ) : null}
-
-      {writable && showSelectionHint ? (
-        <div className="schema-canvas__selection-hint" role="status">
-          <kbd>Shift</kbd>
-          <span>{labels.multiSelectHint}</span>
-        </div>
-      ) : null}
-
-      {features.annotations && writable && !features.canvasToolbar ? (
-        <div
-          ref={addMenu}
-          className="schema-canvas__add-menu"
-          role="toolbar"
-          aria-label={labels.add}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && addOpen) {
-              event.stopPropagation();
-              setAddOpen(false);
-              addToggle.current?.focus();
-            }
-          }}
-        >
-          <button
-            ref={addToggle}
-            type="button"
-            className="schema-canvas__add-toggle"
-            aria-label={labels.add}
-            aria-expanded={addOpen}
-            onClick={() => setAddOpen((open) => !open)}
-          >
-            <span className="schema-canvas__add-plus" aria-hidden="true">
-              +
-            </span>
-            <span>{labels.add}</span>
-          </button>
-          {addOpen ? (
-            <div className="schema-canvas__add-options">
-              {(
-                [
-                  { kind: "frame", label: labels.addFrame },
-                  { kind: "note", label: labels.addNote },
-                  { kind: "text", label: labels.addText },
-                ] as const
-              ).map(({ kind, label }) => (
-                <button
-                  key={kind}
-                  type="button"
-                  aria-label={label}
-                  title={label}
-                  onClick={() => {
-                    addAnnotation(kind);
-                    setAddOpen(false);
-                  }}
-                >
-                  <AnnotationActionIcon kind={kind} />
-                  <span>{label}</span>
-                </button>
-              ))}
-              {features.imageAnnotations && onUploadImage ? (
+            {features.contextExport ? (
+              <button
+                type="button"
+                className="schema-canvas__context-button"
+                onClick={() => {
+                  setContextQuery(
+                    selectedTableIds.size
+                      ? { tableIds: [...selectedTableIds] }
+                      : selectedNodeId?.startsWith("annotation:")
+                        ? {
+                            annotationIds: [
+                              selectedNodeId.slice("annotation:".length),
+                            ],
+                          }
+                        : { view: selectedView.id },
+                  );
+                }}
+              >
+                {labels.aiContext}
+              </button>
+            ) : null}
+            {writable ? (
+              <>
                 <button
                   type="button"
-                  aria-label={labels.addImage}
-                  title={labels.addImage}
-                  onClick={() => {
-                    setAddOpen(false);
-                    fileInput.current?.click();
-                  }}
+                  aria-label="Undo"
+                  title="Undo (⌘/Ctrl+Z)"
+                  disabled={!editHistory.current.canUndo}
+                  onClick={undo}
                 >
-                  <AnnotationActionIcon kind="image" />
-                  <span>{labels.addImage}</span>
+                  <HistoryIcon direction="undo" />
                 </button>
-              ) : null}
+                <button
+                  type="button"
+                  aria-label="Redo"
+                  title="Redo (⌘/Ctrl+Shift+Z)"
+                  disabled={!editHistory.current.canRedo}
+                  onClick={redo}
+                >
+                  <HistoryIcon direction="redo" />
+                </button>
+              </>
+            ) : null}
+          </div>
+          {searchOpen &&
+          normalizedSearchQuery === debouncedSearchQuery &&
+          normalizedSearchQuery ? (
+            <div className="schema-canvas__search-results">
+              {searchResults.length ? (
+                searchResults.map((table) => (
+                  <button
+                    key={table.id}
+                    type="button"
+                    onClick={() => selectTable(table.id)}
+                  >
+                    <span>{table.label}</span>
+                    {table.id !== table.label ? (
+                      <small>{table.id}</small>
+                    ) : null}
+                  </button>
+                ))
+              ) : (
+                <p>{labels.noMatchingTables}</p>
+              )}
             </div>
           ) : null}
-          {features.imageAnnotations && onUploadImage ? (
-            <input
-              ref={fileInput}
-              className="schema-canvas__file-input"
-              type="file"
-              accept="image/*"
-              aria-label={labels.uploadImage}
-              onChange={(event) => void uploadImage(event)}
+        </div>
+
+        {features.unpositionedTray && model.unpositionedTableIds.length ? (
+          <aside className="schema-canvas__tray">
+            <strong>{labels.unpositionedTables}</strong>
+            {model.unpositionedTableIds.map((tableId) => (
+              <button
+                key={tableId}
+                type="button"
+                onClick={() => {
+                  setSelectedNodeId(tableId);
+                  setSelectedTableIds(new Set([tableId]));
+                  void fitView({ nodes: [{ id: tableId }], duration: 250 });
+                }}
+              >
+                {graph.tables.find((table) => table.id === tableId)?.label ??
+                  tableId}
+              </button>
+            ))}
+          </aside>
+        ) : null}
+
+        <ReactFlow<CanvasNode, CanvasEdge>
+          colorMode={theme}
+          className={
+            features.background ? "schema-canvas__background" : undefined
+          }
+          style={{ backgroundSize: `${gridSize}px ${gridSize}px` }}
+          onInit={setReactFlow}
+          nodes={model.nodes}
+          edges={model.edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onNodeClick={onNodeClick}
+          onNodeDragStart={showDragHint}
+          onNodeDragStop={hideDragHint}
+          onSelectionStart={showDragHint}
+          onSelectionEnd={hideDragHint}
+          onEdgeClick={onEdgeClick}
+          onReconnect={onReconnect}
+          onReconnectStart={onReconnectStart}
+          onReconnectEnd={onReconnectEnd}
+          onPaneClick={() => {
+            setSelectedNodeId(null);
+            setSelectedTableIds(new Set());
+            setSelectedEdgeId(null);
+            onSelectedTableChange?.(null);
+          }}
+          snapToGrid
+          snapGrid={[gridSize, gridSize]}
+          nodesDraggable={writable}
+          nodesConnectable={writable}
+          edgesReconnectable={writable}
+          reconnectRadius={10}
+          connectionRadius={28}
+          isValidConnection={(connection) =>
+            graph.edges.some(
+              (edge) =>
+                edge.source === connection.source &&
+                edge.target === connection.target,
+            )
+          }
+          elementsSelectable
+          selectionOnDrag={writable}
+          deleteKeyCode={null}
+          multiSelectionKeyCode="Shift"
+          minZoom={0.08}
+          maxZoom={2}
+          fitView
+          fitViewOptions={{ padding: 0.15 }}
+          panOnScroll
+          selectionKeyCode="Shift"
+          zoomOnScroll={false}
+          zoomOnPinch
+          elevateNodesOnSelect={false}
+          elevateEdgesOnSelect
+          aria-label={labels.canvasLabel}
+        >
+          {features.minimap ? <MiniMap pannable zoomable /> : null}
+          {features.navigationControls ? (
+            <Controls
+              className="schema-canvas__navigation"
+              position="bottom-center"
+              orientation="horizontal"
+              showInteractive={false}
+              fitViewOptions={{ padding: 0.15, duration: 250 }}
             />
           ) : null}
-        </div>
-      ) : null}
+        </ReactFlow>
 
-      <div className="schema-canvas__save-status-overlay">
-        {imageUploadError ? <span role="alert">{imageUploadError}</span> : null}
-        <SaveStatus state={saveState} writable={writable} labels={labels} />
-      </div>
+        {contextQuery ? (
+          <CanvasContextPanel
+            readContext={readContext}
+            query={contextQuery}
+            labels={labels}
+            onClose={() => setContextQuery(null)}
+          />
+        ) : null}
+        {proposalReview ? (
+          <CanvasProposalInbox
+            controls={proposalReview}
+            labels={labels}
+            hasUnsavedChanges={handle.getSaveState().dirty}
+            documentVersion={`${layoutQueue.getRevision() ?? ""}|${annotationQueue.getRevision() ?? ""}`}
+            onNavigate={(location) => {
+              const matchingView =
+                views.find(
+                  (view) =>
+                    location.tableIds.length &&
+                    location.tableIds.every((id) => view.tableIds.includes(id)),
+                ) ??
+                views.find((view) =>
+                  location.tableIds.some((id) => view.tableIds.includes(id)),
+                );
+              if (matchingView) setSelectedViewId(matchingView.id);
+              setSelectedNodeId(null);
+              setSelectedTableIds(new Set(location.tableIds));
+              setSelectedEdgeId(null);
+              setDefinitionTableId(null);
+              setSearchOpen(false);
+              setSearchQuery("");
+              setProposalLocation(location);
+              onSelectedTableChange?.(location.tableIds[0] ?? null);
+            }}
+          />
+        ) : null}
 
-      {writable && selectedTable && features.tableEditor ? (
-        <TableEditor
-          tableId={selectedTable.id}
-          tableLabel={selectedTable.label}
-          fields={selectedTable.fields.map((field) => field.name)}
-          entry={withTablePosition(layout, selectedTable.id)[selectedTable.id]!}
-          labels={labels}
-          onShowAllEdges={() => showAllEdgesForTable(selectedTable.id)}
-          details={renderTableDetails?.(selectedTable)}
-          {...(onLoadTableDefinition
-            ? {
-                onViewDefinition: () => setDefinitionTableId(selectedTable.id),
+        {writable && showSelectionHint ? (
+          <div className="schema-canvas__selection-hint" role="status">
+            <kbd>Shift</kbd>
+            <span>{labels.multiSelectHint}</span>
+          </div>
+        ) : null}
+
+        {features.annotations && writable && !features.canvasToolbar ? (
+          <div
+            ref={addMenu}
+            className="schema-canvas__add-menu"
+            role="toolbar"
+            aria-label={labels.add}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && addOpen) {
+                event.stopPropagation();
+                setAddOpen(false);
+                addToggle.current?.focus();
               }
-            : {})}
-          onChange={(change) =>
-            updateLayout(
-              (current) => ({
-                ...current,
-                [selectedTable.id]: {
-                  ...withTablePosition(current, selectedTable.id)[
-                    selectedTable.id
-                  ]!,
-                  ...change,
-                },
-              }),
-              true,
-              typeof change.markdown === "string"
-                ? `table:${selectedTable.id}:markdown`
-                : undefined,
-            )
-          }
-          onClose={() => {
-            setSelectedNodeId(null);
-            setSelectedTableIds(new Set());
-          }}
-        />
-      ) : null}
-      {!writable && selectedTable && onLoadTableDefinition ? (
-        <Editor
-          title={selectedTable.label}
-          labels={labels}
-          onClose={() => {
-            setSelectedNodeId(null);
-            setSelectedTableIds(new Set());
-          }}
-        >
-          <button
-            type="button"
-            className="schema-canvas__action-button"
-            onClick={() => setDefinitionTableId(selectedTable.id)}
+            }}
           >
-            {labels.viewDefinition}
-          </button>
-        </Editor>
-      ) : null}
-      {definitionTableId &&
-      onLoadTableDefinition &&
-      graph.tables.some((table) => table.id === definitionTableId) ? (
-        <DefinitionDialog
-          key={definitionTableId}
-          table={graph.tables.find((table) => table.id === definitionTableId)!}
-          load={onLoadTableDefinition}
-          labels={labels}
-          onClose={() => setDefinitionTableId(null)}
-        />
-      ) : null}
-      {writable && selectedEdge && features.edgeEditor ? (
-        <EdgeEditor
-          edgeLabel={selectedEdge.field}
-          sourceTableLabel={
-            graph.tables.find((table) => table.id === selectedEdge.source)
-              ?.label ?? selectedEdge.source
-          }
-          targetTableLabel={
-            graph.tables.find((table) => table.id === selectedEdge.target)
-              ?.label ?? selectedEdge.target
-          }
-          onSelectSource={() => selectTable(selectedEdge.source)}
-          onSelectTarget={() => selectTable(selectedEdge.target)}
-          route={edgeEditorRoute(selectedEdge, layout, model.edges)}
-          labels={labels}
-          onChange={(change) =>
-            updateLayout((current) =>
-              setSchemaEdgeLayout(
-                withTablePosition(current, selectedEdge.source),
-                selectedEdge,
-                {
-                  ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
-                  ...change,
-                },
-              ),
-            )
-          }
-          onToneChange={(tone) =>
-            updateLayout((current) => {
-              const route = {
-                ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
-              };
-              if (tone === "auto") delete route.muted;
-              else route.muted = tone === "muted";
-              return setSchemaEdgeLayout(
-                withTablePosition(current, selectedEdge.source),
-                selectedEdge,
-                route,
-              );
-            })
-          }
-          onClose={() => setSelectedEdgeId(null)}
-        />
-      ) : null}
-      {writable && selectedAnnotation && features.annotations ? (
-        <AnnotationEditor
-          annotation={selectedAnnotation}
-          labels={labels}
-          onUploadImage={onUploadImage}
-          onChange={(change) =>
-            updateAnnotations(
-              (current) =>
-                current.map((annotation) =>
-                  annotation.id === selectedAnnotation.id
-                    ? { ...annotation, ...change }
-                    : annotation,
+            <button
+              ref={addToggle}
+              type="button"
+              className="schema-canvas__add-toggle"
+              aria-label={labels.add}
+              aria-expanded={addOpen}
+              onClick={() => setAddOpen((open) => !open)}
+            >
+              <span className="schema-canvas__add-plus" aria-hidden="true">
+                +
+              </span>
+              <span>{labels.add}</span>
+            </button>
+            {addOpen ? (
+              <div className="schema-canvas__add-options">
+                {(
+                  [
+                    { kind: "frame", label: labels.addFrame },
+                    { kind: "note", label: labels.addNote },
+                    { kind: "text", label: labels.addText },
+                  ] as const
+                ).map(({ kind, label }) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-label={label}
+                    title={label}
+                    onClick={() => {
+                      addAnnotation(kind);
+                      setAddOpen(false);
+                    }}
+                  >
+                    <AnnotationActionIcon kind={kind} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+                {features.imageAnnotations && onUploadImage ? (
+                  <button
+                    type="button"
+                    aria-label={labels.addImage}
+                    title={labels.addImage}
+                    onClick={() => {
+                      setAddOpen(false);
+                      fileInput.current?.click();
+                    }}
+                  >
+                    <AnnotationActionIcon kind="image" />
+                    <span>{labels.addImage}</span>
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {features.imageAnnotations && onUploadImage ? (
+              <input
+                ref={fileInput}
+                className="schema-canvas__file-input"
+                type="file"
+                accept="image/*"
+                aria-label={labels.uploadImage}
+                onChange={(event) => void uploadImage(event)}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="schema-canvas__save-status-overlay">
+          {imageUploadError ? (
+            <span role="alert">{imageUploadError}</span>
+          ) : null}
+          <SaveStatus state={saveState} writable={writable} labels={labels} />
+        </div>
+
+        {writable && selectedTable && features.tableEditor ? (
+          <TableEditor
+            tableId={selectedTable.id}
+            tableLabel={selectedTable.label}
+            fields={selectedTable.fields.map((field) => field.name)}
+            entry={
+              withTablePosition(layout, selectedTable.id)[selectedTable.id]!
+            }
+            labels={labels}
+            onShowAllEdges={() => showAllEdgesForTable(selectedTable.id)}
+            details={renderTableDetails?.(selectedTable)}
+            {...(onLoadTableDefinition
+              ? {
+                  onViewDefinition: () =>
+                    setDefinitionTableId(selectedTable.id),
+                }
+              : {})}
+            onChange={(change) =>
+              updateLayout(
+                (current) => ({
+                  ...current,
+                  [selectedTable.id]: withoutUndefined({
+                    ...withTablePosition(current, selectedTable.id)[
+                      selectedTable.id
+                    ]!,
+                    ...change,
+                  }),
+                }),
+                true,
+                typeof change.markdown === "string"
+                  ? `table:${selectedTable.id}:markdown`
+                  : undefined,
+              )
+            }
+            onClose={() => {
+              setSelectedNodeId(null);
+              setSelectedTableIds(new Set());
+            }}
+          />
+        ) : null}
+        {!writable && selectedTable && onLoadTableDefinition ? (
+          <Editor
+            title={selectedTable.label}
+            labels={labels}
+            onClose={() => {
+              setSelectedNodeId(null);
+              setSelectedTableIds(new Set());
+            }}
+          >
+            <button
+              type="button"
+              className="schema-canvas__action-button"
+              onClick={() => setDefinitionTableId(selectedTable.id)}
+            >
+              {labels.viewDefinition}
+            </button>
+          </Editor>
+        ) : null}
+        {definitionTableId &&
+        onLoadTableDefinition &&
+        graph.tables.some((table) => table.id === definitionTableId) ? (
+          <DefinitionDialog
+            key={definitionTableId}
+            table={graph.tables.find(
+              (table) => table.id === definitionTableId,
+            )!}
+            load={onLoadTableDefinition}
+            labels={labels}
+            onClose={() => setDefinitionTableId(null)}
+          />
+        ) : null}
+        {writable && selectedEdge && features.edgeEditor ? (
+          <EdgeEditor
+            edgeLabel={selectedEdge.field}
+            sourceTableLabel={
+              graph.tables.find((table) => table.id === selectedEdge.source)
+                ?.label ?? selectedEdge.source
+            }
+            targetTableLabel={
+              graph.tables.find((table) => table.id === selectedEdge.target)
+                ?.label ?? selectedEdge.target
+            }
+            onSelectSource={() => selectTable(selectedEdge.source)}
+            onSelectTarget={() => selectTable(selectedEdge.target)}
+            route={edgeEditorRoute(selectedEdge, layout, model.edges)}
+            labels={labels}
+            onChange={(change) =>
+              updateLayout((current) =>
+                setSchemaEdgeLayout(
+                  withTablePosition(current, selectedEdge.source),
+                  selectedEdge,
+                  {
+                    ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
+                    ...change,
+                  },
                 ),
-              true,
-              typeof change.markdown === "string"
-                ? `annotation:${selectedAnnotation.id}:markdown`
-                : undefined,
-            )
-          }
-          onDelete={() => {
-            updateAnnotations((current) =>
-              current.filter(
-                (annotation) => annotation.id !== selectedAnnotation.id,
-              ),
-            );
-            setSelectedNodeId(null);
-            setSelectedTableIds(new Set());
-          }}
-          onDuplicate={() => insertAnnotationCopy(selectedAnnotation, 1)}
-          onClose={() => {
-            setSelectedNodeId(null);
-            setSelectedTableIds(new Set());
-          }}
-        />
-      ) : null}
-    </section>
+              )
+            }
+            onToneChange={(tone) =>
+              updateLayout((current) => {
+                const route = {
+                  ...(getSchemaEdgeLayout(current, selectedEdge) ?? {}),
+                };
+                if (tone === "auto") delete route.muted;
+                else route.muted = tone === "muted";
+                return setSchemaEdgeLayout(
+                  withTablePosition(current, selectedEdge.source),
+                  selectedEdge,
+                  route,
+                );
+              })
+            }
+            onClose={() => setSelectedEdgeId(null)}
+          />
+        ) : null}
+        {writable && selectedAnnotation && features.annotations ? (
+          <AnnotationEditor
+            annotation={selectedAnnotation}
+            labels={labels}
+            onUploadImage={onUploadImage}
+            onChange={(change) =>
+              updateAnnotations(
+                (current) =>
+                  current.map((annotation) =>
+                    annotation.id === selectedAnnotation.id
+                      ? { ...annotation, ...change }
+                      : annotation,
+                  ),
+                true,
+                typeof change.markdown === "string"
+                  ? `annotation:${selectedAnnotation.id}:markdown`
+                  : undefined,
+              )
+            }
+            onDelete={() => {
+              updateAnnotations((current) =>
+                current.filter(
+                  (annotation) => annotation.id !== selectedAnnotation.id,
+                ),
+              );
+              setSelectedNodeId(null);
+              setSelectedTableIds(new Set());
+            }}
+            onDuplicate={() => insertAnnotationCopy(selectedAnnotation, 1)}
+            onClose={() => {
+              setSelectedNodeId(null);
+              setSelectedTableIds(new Set());
+            }}
+          />
+        ) : null}
+      </section>
+    </SchemaIconProvider>
   );
 }
 
@@ -1755,7 +1780,7 @@ function TableEditor({
   onShowAllEdges: () => void;
   details?: ReactNode;
   onViewDefinition?: () => void;
-  onChange: (change: Partial<SchemaTableLayout>) => void;
+  onChange: (change: TableLayoutChange) => void;
   onClose: () => void;
 }) {
   const highlighted = new Set(entry.highlightedFields ?? []);
@@ -1782,6 +1807,13 @@ function TableEditor({
             >,
           })
         }
+      />
+      <TableIconField
+        key={`icon:${tableId}`}
+        icon={entry.icon}
+        iconColor={entry.iconColor}
+        labels={labels}
+        onChange={onChange}
       />
       <MarkdownField
         key={tableId}
@@ -1862,6 +1894,78 @@ function TableEditor({
         <div className="schema-canvas__table-details">{details}</div>
       ) : null}
     </Editor>
+  );
+}
+
+/** A table edit; undefined clears a field. */
+type TableLayoutChange = {
+  [Key in keyof SchemaTableLayout]?: SchemaTableLayout[Key] | undefined;
+};
+
+/** Removes keys set to undefined, so a cleared field leaves the saved JSON. */
+function withoutUndefined(value: TableLayoutChange): SchemaTableLayout {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  ) as SchemaTableLayout;
+}
+
+function TableIconField({
+  icon,
+  iconColor,
+  labels,
+  onChange,
+}: {
+  icon: string | undefined;
+  iconColor: string | undefined;
+  labels: SchemaCanvasLabels;
+  onChange: (change: TableLayoutChange) => void;
+}) {
+  const { renderIcon, iconNames, iconColors } = useSchemaIcons();
+  const [open, setOpen] = useState(false);
+  if (!renderIcon || !iconNames?.length) return null;
+  return (
+    <fieldset className="schema-canvas__choice-field schema-canvas__icon-field">
+      <legend>{labels.icon}</legend>
+      <div className="schema-canvas__icon-actions">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={`${labels.chooseIcon}: ${icon ?? labels.noIcon}`}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {icon ? <SchemaIcon name={icon} color={iconColor} /> : null}
+          {icon ?? labels.chooseIcon}
+        </button>
+        {icon ? (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onChange({ icon: undefined, iconColor: undefined });
+            }}
+          >
+            {labels.removeIcon}
+          </button>
+        ) : null}
+      </div>
+      {open ? (
+        <IconPicker
+          labels={labels}
+          value={icon}
+          onSelect={(name) => {
+            setOpen(false);
+            onChange({ icon: name });
+          }}
+        />
+      ) : null}
+      {icon && Object.keys(iconColors).length ? (
+        <IconColorPicker
+          labels={labels}
+          value={iconColor}
+          onChange={(color) => onChange({ iconColor: color })}
+        />
+      ) : null}
+    </fieldset>
   );
 }
 

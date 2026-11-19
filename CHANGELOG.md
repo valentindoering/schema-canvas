@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.0
+
+- Show host-supplied icons. A table's layout entry takes an optional `icon`
+  (an icon name such as `"landmark"`) and `iconColor` (a palette name such as
+  `"amber"`). The icon appears left of the table title, with its name as
+  tooltip. The table editor offers a searchable icon picker, a colour choice and
+  **Remove icon**.
+- Inline icons in table, note and text Markdown: `:icon[name]` or
+  `:icon[name]{color=amber}`, stored as plain text. The read view and the
+  suggestion diff render them as icons. The rich-text editor keeps each token as
+  an inline atom that serializes back exactly; insert one with the **Icon**
+  button or by typing `:icon[`.
+- The host supplies `renderIcon(name)`, `iconNames` and `iconColors` (palette
+  name → CSS colour). The package ships no icon library. Without them, tokens
+  show as text and headers show no icon. Unknown names show as marked token
+  text; unknown colours fall back to the text colour and are marked in the
+  editor.
+- Agents propose a table icon with the new `set_table_icon` operation
+  (`icon`, optional `iconColor`, `icon: null` removes it), reviewed like
+  `set_table_markdown` and stale only when the icon or its colour changed. The
+  agent context reports each table's icon and colour, and its policy explains
+  the inline syntax.
+
+Stored layouts need no migration: `icon` and `iconColor` are optional and
+validated as lowercase kebab-case names. A layout that uses them cannot be read
+by 0.6.x. `CanvasContext` tables add `icon` and `iconColor`.
+
 ## 0.6.0
 
 - Make accepting a suggestion fast on large canvases. A pending proposal now

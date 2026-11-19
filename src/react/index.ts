@@ -24,6 +24,12 @@ export {
 } from "./types.js";
 
 export {
+  IconText,
+  SchemaIcon,
+  SchemaIconProvider,
+  type SchemaCanvasIconProps,
+} from "./icons.js";
+export {
   CanvasProposalInbox,
   type CanvasProposalReviewControls,
   type CanvasProposalLocation,

@@ -6,6 +6,7 @@ import {
   type CanvasDocument,
 } from "./canvas-document.js";
 import { parseSchemaAnnotations } from "./annotations.js";
+import { isSchemaIconColorName, isSchemaIconName } from "./icons.js";
 import { getSchemaEdgeLayout, setSchemaEdgeLayout } from "./layout.js";
 import { assertRecord, finiteNumber } from "./shared.js";
 import type {
@@ -19,6 +20,16 @@ import type {
 
 export type CanvasProposalOperation =
   | { op: "set_table_markdown"; tableId: string; markdown: string }
+  /**
+   * Sets the table header icon and its colour together: a host icon name, or
+   * null to remove both. Without iconColor the icon takes the text colour.
+   */
+  | {
+      op: "set_table_icon";
+      tableId: string;
+      icon: string | null;
+      iconColor?: string;
+    }
   | { op: "move_table"; tableId: string; x: number; y: number }
   | {
       op: "set_table_appearance";
@@ -126,6 +137,7 @@ const appearances = [
 ];
 const operationKeys: Record<CanvasProposalOperation["op"], string[]> = {
   set_table_markdown: ["op", "tableId", "markdown"],
+  set_table_icon: ["op", "tableId", "icon", "iconColor"],
   move_table: ["op", "tableId", "x", "y"],
   set_table_appearance: ["op", "tableId", "appearance"],
   update_edge: ["op", "edgeId", "changes"],
@@ -166,15 +178,32 @@ export function parseCanvasProposalInput(
     for (const key of ["tableId", "annotationId", "edgeId"])
       if (operation[key] !== undefined) canvasText(operation[key], key, 500);
     if (
-      ["set_table_markdown", "move_table", "set_table_appearance"].includes(
-        operation.op,
-      )
+      [
+        "set_table_markdown",
+        "set_table_icon",
+        "move_table",
+        "set_table_appearance",
+      ].includes(operation.op)
     )
       canvasText(operation.tableId, "Table id", 500);
     if (["update_annotation", "delete_annotation"].includes(operation.op))
       canvasText(operation.annotationId, "Annotation id", 500);
     if (operation.op === "set_table_markdown")
       canvasText(operation.markdown, "Table Markdown", 4000, true);
+    if (operation.op === "set_table_icon") {
+      if (operation.icon !== null && !isSchemaIconName(operation.icon))
+        throw new Error(
+          "Table icon must be null or a lowercase kebab-case icon name.",
+        );
+      if (operation.iconColor !== undefined) {
+        if (operation.icon === null)
+          throw new Error("Removing a table icon cannot set its colour.");
+        if (!isSchemaIconColorName(operation.iconColor))
+          throw new Error(
+            "Table icon colour must be a lowercase kebab-case palette name.",
+          );
+      }
+    }
     if (operation.op === "move_table") {
       finiteNumber(operation.x, "Move needs x.");
       finiteNumber(operation.y, "Move needs y.");
@@ -286,6 +315,12 @@ export function previewCanvasProposal(
         next.markdown = operation.markdown;
       if (operation.op === "set_table_appearance")
         next.appearance = operation.appearance;
+      if (operation.op === "set_table_icon") {
+        if (operation.icon === null) delete next.icon;
+        else next.icon = operation.icon;
+        if (operation.iconColor === undefined) delete next.iconColor;
+        else next.iconColor = operation.iconColor;
+      }
       document = {
         ...document,
         layout: { ...document.layout, [objectId]: next },
@@ -562,6 +597,13 @@ export function parseCanvasProposalBase(
     finiteNumber(entry.y, "Base table layout needs y.");
     if (entry.markdown !== undefined)
       canvasText(entry.markdown, "Table Markdown", 4000, true);
+    if (entry.icon !== undefined && !isSchemaIconName(entry.icon))
+      throw new Error("Invalid base table icon.");
+    if (
+      entry.iconColor !== undefined &&
+      !isSchemaIconColorName(entry.iconColor)
+    )
+      throw new Error("Invalid base table icon colour.");
   }
   for (const [id, edge] of Object.entries(edges)) {
     canvasText(id, "Edge id", 500);
@@ -706,6 +748,11 @@ export function rebaseCanvasProposal(
         return equal(before?.appearance, now?.appearance)
           ? operation
           : conflict(id, "appearance");
+      if (operation.op === "set_table_icon")
+        return equal(before?.icon, now?.icon) &&
+          equal(before?.iconColor, now?.iconColor)
+          ? operation
+          : conflict(id, "icon");
       const ours = now?.markdown ?? "";
       if (equal(before?.markdown, now?.markdown)) return operation;
       const markdown = mergeCanvasText(

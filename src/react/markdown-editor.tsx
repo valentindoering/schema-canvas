@@ -13,6 +13,14 @@ import {
 } from "react";
 
 import type { MarkdownEditorProps } from "./markdown-field.js";
+import { IconColorPicker, IconPicker } from "./icon-picker.js";
+import { SchemaIconNode } from "./icon-node.js";
+import { useSchemaIcons } from "./icons.js";
+
+/** Where an icon picked from the picker goes, and the name typed so far. */
+type IconInsertion = { from: number; to: number; query?: string };
+
+const typedIconToken = /:icon\[([a-z0-9-]*)$/;
 
 /**
  * Inside a list, Tab and Shift+Tab nest and un-nest the item like a normal
@@ -108,6 +116,12 @@ export default function MarkdownEditor({
   const expandButton = useRef<HTMLButtonElement>(null);
   const rawValue = useRef(value);
   const fieldId = useId();
+  const icons = useSchemaIcons();
+  const iconsAvailable = Boolean(icons.renderIcon && icons.iconNames?.length);
+  const [iconInsertion, setIconInsertion] = useState<IconInsertion | null>(
+    null,
+  );
+  const [iconColor, setIconColor] = useState<string | undefined>();
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -118,6 +132,7 @@ export default function MarkdownEditor({
         link: { openOnClick: false, autolink: false },
       }),
       Markdown,
+      SchemaIconNode,
     ],
     content: value,
     contentType: "markdown",
@@ -129,6 +144,25 @@ export default function MarkdownEditor({
         class: "schema-canvas__markdown schema-canvas__rich-text",
       },
       handleKeyDown: handleListTab,
+    },
+    onTransaction: ({ editor }) => {
+      // Typing ":icon[" opens the picker; what follows filters it.
+      const { $from, empty } = editor.state.selection;
+      const before = empty
+        ? $from.parent.textBetween(0, $from.parentOffset, undefined, "\ufffc")
+        : "";
+      const match = typedIconToken.exec(before);
+      setIconInsertion((current) =>
+        match
+          ? {
+              from: $from.pos - match[0].length,
+              to: $from.pos,
+              query: match[1]!,
+            }
+          : current?.query === undefined
+            ? current
+            : null,
+      );
     },
     onUpdate: ({ editor, transaction }) => {
       if (!transaction.docChanged) return;
@@ -310,6 +344,26 @@ export default function MarkdownEditor({
                 {action.content}
               </button>
             ))}
+            {iconsAvailable ? (
+              <button
+                type="button"
+                aria-label={labels.insertIcon}
+                title={labels.insertIcon}
+                aria-pressed={iconInsertion !== null}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  if (iconInsertion) return setIconInsertion(null);
+                  const selection = editor?.state.selection;
+                  if (selection)
+                    setIconInsertion({
+                      from: selection.from,
+                      to: selection.to,
+                    });
+                }}
+              >
+                {labels.icon}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={labels.link}
@@ -373,6 +427,33 @@ export default function MarkdownEditor({
                 <span role="alert">{labels.invalidLink}</span>
               ) : null}
             </form>
+          ) : null}
+          {iconsAvailable && iconInsertion ? (
+            <div className="schema-canvas__markdown-icon-picker">
+              <IconPicker
+                labels={labels}
+                query={iconInsertion.query}
+                onSelect={(name) => {
+                  editor
+                    ?.chain()
+                    .focus()
+                    .insertContentAt(
+                      { from: iconInsertion.from, to: iconInsertion.to },
+                      {
+                        type: "schemaIcon",
+                        attrs: { name, color: iconColor ?? null },
+                      },
+                    )
+                    .run();
+                  setIconInsertion(null);
+                }}
+              />
+              <IconColorPicker
+                labels={labels}
+                value={iconColor}
+                onChange={setIconColor}
+              />
+            </div>
           ) : null}
           <EditorContent editor={editor} />
         </>

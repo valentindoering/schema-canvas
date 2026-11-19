@@ -92,6 +92,8 @@ The layout should be a superset of the supported controls:
 
 - snapped `x` and `y` positions;
 - table appearance;
+- an optional table icon name and icon colour name (the host renders icons and
+  maps colour names to CSS values);
 - full or concise field display;
 - explicitly highlighted fields;
 - hide all, incoming, or automatically muted incoming edges;

@@ -14,6 +14,29 @@ import {
 import "../../src/styles.css";
 import { graph, layout as initialLayout } from "../fixtures.js";
 
+// Fictional, hand-drawn icons: the package ships none.
+const iconPaths: Record<string, string> = {
+  anchor: "M12 3v18M5 12a7 7 0 0 0 14 0M8 7h8",
+  compass: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3 7-2 5-5 2 2-5z",
+  "link-2": "M9 17H7a5 5 0 0 1 0-10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8",
+};
+const fixtureIcons = {
+  iconNames: Object.keys(iconPaths),
+  iconColors: { amber: "rgb(180, 83, 9)", teal: "rgb(15, 118, 110)" },
+  renderIcon: (name: string) =>
+    iconPaths[name] ? (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        aria-hidden="true"
+      >
+        <path d={iconPaths[name]} />
+      </svg>
+    ) : null,
+};
+
 const splitViews: SchemaView[] = [
   { id: "accounts", label: "Accounts", tableIds: ["accounts"], edgeIds: [] },
   { id: "projects", label: "Projects", tableIds: ["projects"], edgeIds: [] },
@@ -114,6 +137,9 @@ function Fixture() {
           layout={layout}
           annotations={annotations}
           writable={writable}
+          {...(new URLSearchParams(location.search).has("icons")
+            ? fixtureIcons
+            : {})}
           {...(new URLSearchParams(location.search).has("defaultDarkTheme")
             ? { defaultTheme: "dark" as const }
             : {})}

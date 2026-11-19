@@ -17,6 +17,8 @@ export type TableNodeData = {
   table: SchemaTable;
   reconnectTargetKind?: "source" | "target";
   appearance: SchemaTableAppearance;
+  icon?: string;
+  iconColor?: string;
   markdown?: string;
   fieldDisplay: SchemaTableFieldDisplay;
   conciseFieldCount: number;
@@ -108,6 +110,10 @@ export function buildCanvasModel(
             : {}),
           appearance: entry?.appearance ?? "standard",
           ...(entry?.markdown ? { markdown: entry.markdown } : {}),
+          ...(entry?.icon ? { icon: entry.icon } : {}),
+          ...(entry?.icon && entry.iconColor
+            ? { iconColor: entry.iconColor }
+            : {}),
           fieldDisplay,
           conciseFieldCount: options.conciseFieldCount,
           expanded: options.expandedTableIds.has(table.id),

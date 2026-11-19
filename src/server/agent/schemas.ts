@@ -2,6 +2,11 @@ const text = { type: "string", minLength: 1, maxLength: 500 };
 const number = { type: "number" };
 const boolean = { type: "boolean" };
 const markdown = { type: "string", maxLength: 5000 };
+const iconName = {
+  type: "string",
+  maxLength: 64,
+  pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+};
 const bounds = {
   type: "object",
   properties: {
@@ -85,6 +90,23 @@ export const canvasProposalInputSchema = {
             tableId: text,
             markdown: { ...markdown, maxLength: 4000 },
           }),
+          operation(
+            "set_table_icon",
+            {
+              tableId: text,
+              icon: {
+                oneOf: [{ ...iconName }, { type: "null" }],
+                description:
+                  'Host icon name for the table header, e.g. "landmark"; null removes the icon and its colour.',
+              },
+              iconColor: {
+                ...iconName,
+                description:
+                  'Optional host palette name, e.g. "amber". Omit it for the text colour.',
+              },
+            },
+            ["tableId", "icon"],
+          ),
           operation("move_table", { tableId: text, x: number, y: number }),
           operation("set_table_appearance", {
             tableId: text,
