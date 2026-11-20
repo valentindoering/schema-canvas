@@ -541,7 +541,7 @@ export function createCanvasReviewService<ReviewContext>(options: {
         after: review.after,
         changes: review.changes,
       });
-      // An always-visible inbox reopens every card after each change. A still-valid
+      // Several cards or tabs may reopen the same proposal. A still-valid
       // receipt for this reviewer and this exact result needs no write.
       const state = await read();
       const proposal = pending(state, id);
