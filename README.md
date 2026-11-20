@@ -669,8 +669,18 @@ both buttons disabled; it leaves once the callback resolves. Decisions are sent
 to the host one at a time; the canvas and the other cards stay usable meanwhile.
 If a decision fails, the card shows the error and can be decided again. Refresh
 the controlled document, revision, and proposal props after decisions; this need
-not block the decision callback. Open cards also refresh quietly after the canvas saves its own edits,
-keeping the previous review visible until the new one arrives.
+not block the decision callback.
+
+Each card calls `onOpenReview` once. A decision costs one host call, however
+many suggestions are pending: a new revision does not reopen the other cards,
+and their Accept uses the review they already show. That is safe because the
+service checks every decision against the live fields it writes. After an
+accepted decision, only cards that write the same table (including its arrows)
+or annotation reopen. After the canvas saves its own edits, only cards whose
+table or annotation changed reopen, keeping the previous review visible until
+the new one arrives. A card whose fields changed some other way (another tab, a
+file edit) learns it when the human decides it: the service refuses, and the
+card reloads and shows why.
 
 Staleness is decided per field. Each operation is compared only with the field
 it writes, against the proposal's stored baseline:

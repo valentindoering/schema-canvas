@@ -477,27 +477,191 @@ describe("persistent suggestion panel", () => {
     );
     expect(await screen.findByText(labels.reviewMerged)).toBeTruthy();
   });
-  it("refreshes an open review quietly after the canvas saves", async () => {
+  it("reloads an open review after a canvas save only when its table changed", async () => {
     const { controls } = fixture();
+    const saved = (layout: typeof canvasDocument.layout) => ({
+      layout,
+      annotations: canvasDocument.annotations,
+    });
     const view = render(
       <CanvasProposalInbox
         controls={controls}
         labels={labels}
         hasUnsavedChanges={false}
         documentVersion="a"
+        document={saved(canvasDocument.layout)}
       />,
     );
     await screen.findByText("# Proposed guide");
+    expect(controls.onOpenReview).toHaveBeenCalledTimes(1);
+    // Moving another table does not touch this review.
     view.rerender(
       <CanvasProposalInbox
         controls={controls}
         labels={labels}
         hasUnsavedChanges={false}
         documentVersion="b"
+        document={saved({
+          ...canvasDocument.layout,
+          accounts: { x: 800, y: 0 },
+        })}
       />,
     );
-    // The previous review stays visible while the refresh runs.
+    await act(async () => {});
+    expect(controls.onOpenReview).toHaveBeenCalledTimes(1);
+    // A hand edit of the same table note does; the old review stays visible meanwhile.
+    view.rerender(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+        documentVersion="c"
+        document={saved({
+          ...canvasDocument.layout,
+          accounts: { x: 800, y: 0 },
+          projects: { ...canvasDocument.layout.projects!, markdown: "Hand" },
+        })}
+      />,
+    );
     expect(screen.getByText("# Proposed guide")).toBeTruthy();
     await waitFor(() => expect(controls.onOpenReview).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("decisions at scale", () => {
+  const tables = Array.from({ length: 10 }, (_, index) => `table_${index}`);
+  function many(shared = false) {
+    const document = {
+      ...canvasDocument,
+      graph: {
+        ...canvasDocument.graph,
+        tables: [
+          ...canvasDocument.graph.tables,
+          ...tables.map((id) => ({ id, label: id, fields: [] })),
+        ],
+      },
+      layout: {
+        ...canvasDocument.layout,
+        ...Object.fromEntries(
+          tables.map((id, i) => [id, { x: i * 400, y: 800 }]),
+        ),
+      },
+    };
+    const proposals: CanvasProposal[] = tables.map((id, index) => ({
+      id: `proposal-${index}`,
+      baseRevision: "revision-1",
+      title: `Icon for ${id}`,
+      reason: "Recognise it at a glance.",
+      actorId: "example assistant",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          op: "set_table_icon",
+          tableId: shared && index < 2 ? "table_0" : id,
+          icon: "anchor",
+        },
+      ],
+    }));
+    const onOpenReview = vi.fn(async (id: string) => {
+      const proposal = proposals.find((p) => p.id === id)!;
+      const preview = previewCanvasProposal(document, proposal);
+      return {
+        proposal,
+        reviewToken: `receipt-${id}`,
+        baseRevision: "revision-1",
+        currentRevision: "revision-1",
+        stale: false,
+        before: document,
+        after: preview.document,
+        changes: preview.changes,
+      } satisfies CanvasProposalReview;
+    });
+    const controls: CanvasProposalReviewControls = {
+      revision: "revision-1",
+      proposals,
+      onOpenReview,
+      onAccept: vi.fn(async () => undefined),
+      onReject: vi.fn(async () => undefined),
+    };
+    return { controls, proposals, onOpenReview };
+  }
+  async function acceptFirst(
+    controls: CanvasProposalReviewControls,
+    rerender: (ui: React.ReactElement) => void,
+  ) {
+    const card = screen.getByRole("article", { name: "Icon for table_0" });
+    fireEvent.click(within(card).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(controls.onAccept).toHaveBeenCalledTimes(1));
+    // The host refreshes: a new revision and the decided proposal gone.
+    rerender(
+      <CanvasProposalInbox
+        controls={{
+          ...controls,
+          revision: "revision-2",
+          proposals: controls.proposals.slice(1),
+        }}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("article", { name: "Icon for table_0" }),
+      ).toBeNull(),
+    );
+    await act(async () => {});
+  }
+
+  it("does not reopen the other reviews after one decision among ten", async () => {
+    const { controls, onOpenReview } = many();
+    const view = render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    await waitFor(() => expect(onOpenReview).toHaveBeenCalledTimes(10));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("button", { name: "Accept" })
+          .every((button) => !(button as HTMLButtonElement).disabled),
+      ).toBe(true),
+    );
+    await acceptFirst(controls, view.rerender);
+    expect(onOpenReview).toHaveBeenCalledTimes(10);
+    // The next Accept uses its own review at once, without waiting on any other.
+    const next = screen.getByRole("article", { name: "Icon for table_1" });
+    fireEvent.click(within(next).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(controls.onAccept).toHaveBeenCalledTimes(2));
+    expect(controls.onAccept).toHaveBeenLastCalledWith({
+      proposalId: "proposal-1",
+      reviewToken: "receipt-proposal-1",
+    });
+    expect(onOpenReview).toHaveBeenCalledTimes(10);
+  });
+
+  it("reopens only a review that writes the same table as the accepted one", async () => {
+    const { controls, onOpenReview } = many(true);
+    const view = render(
+      <CanvasProposalInbox
+        controls={controls}
+        labels={labels}
+        hasUnsavedChanges={false}
+      />,
+    );
+    await waitFor(() => expect(onOpenReview).toHaveBeenCalledTimes(10));
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("button", { name: "Accept" })
+          .every((button) => !(button as HTMLButtonElement).disabled),
+      ).toBe(true),
+    );
+    await acceptFirst(controls, view.rerender);
+    await waitFor(() => expect(onOpenReview).toHaveBeenCalledTimes(11));
+    expect(onOpenReview).toHaveBeenLastCalledWith("proposal-1");
   });
 });

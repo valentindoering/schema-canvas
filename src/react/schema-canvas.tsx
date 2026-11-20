@@ -1431,6 +1431,7 @@ function SchemaCanvasInner({
             labels={labels}
             hasUnsavedChanges={handle.getSaveState().dirty}
             documentVersion={`${layoutQueue.getRevision() ?? ""}|${annotationQueue.getRevision() ?? ""}`}
+            document={{ layout, annotations }}
             onNavigate={(location) => {
               const matchingView =
                 views.find(

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.1
+
+- Make a decision cost one host call however many suggestions are pending.
+  Before, every decision changed the revision and every open card called
+  `onOpenReview` again, so clearing N suggestions took N² review calls and an
+  Accept could wait behind the other cards' reloads. Now each card loads its
+  review once and Accept uses it directly; the service still checks every
+  decision against the live fields. Only cards that write the same table or
+  annotation as an accepted suggestion, or as a canvas save, reload.
+- `CanvasProposalInbox` takes an optional `document` (layout and
+  annotations) to decide which cards a canvas save affects. `SchemaCanvas`
+  passes it.
+
 ## 0.7.0
 
 - Show host-supplied icons. A table's layout entry takes an optional `icon`

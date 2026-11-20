@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   canvasContextSvg,
   canvasDigest,
@@ -10,6 +17,8 @@ import {
   type CanvasProposalConflict,
   type CanvasProposalReview,
   type CanvasReviewDecision,
+  type SchemaAnnotation,
+  type SchemaLayout,
 } from "../core/index.js";
 import { CanvasMarkdown } from "./markdown.js";
 import { IconText, SchemaIcon } from "./icons.js";
@@ -51,6 +60,50 @@ function proposalKey(proposal: CanvasProposal) {
     operations: proposal.operations,
   });
 }
+/**
+ * What a review watches: the tables (layout entries, which also hold their
+ * outgoing arrows) and annotations its changes write. Other edits never change
+ * this review, so they need no new one.
+ */
+function watchedObjects(review: CanvasProposalReview): string[] {
+  return review.changes.map((change) => {
+    if (change.objectId.startsWith("annotation:")) return change.objectId;
+    const edge = review.before.graph.edges.find(
+      (e) => e.id === change.objectId,
+    );
+    return edge ? edge.source : change.objectId;
+  });
+}
+/** Tables and annotations that differ between two saved documents. */
+function changedObjects(
+  before: CanvasProposalDocument,
+  after: CanvasProposalDocument,
+): Set<string> {
+  const changed = new Set<string>();
+  const differs = (a: unknown, b: unknown) =>
+    a !== b &&
+    canonicalCanvasJson(a ?? null) !== canonicalCanvasJson(b ?? null);
+  for (const id of new Set([
+    ...Object.keys(before.layout),
+    ...Object.keys(after.layout),
+  ]))
+    if (differs(before.layout[id], after.layout[id])) changed.add(id);
+  const annotations = new Map(before.annotations.map((a) => [a.id, a]));
+  for (const annotation of after.annotations) {
+    if (differs(annotations.get(annotation.id), annotation))
+      changed.add(`annotation:${annotation.id}`);
+    annotations.delete(annotation.id);
+  }
+  for (const id of annotations.keys()) changed.add(`annotation:${id}`);
+  return changed;
+}
+export type CanvasProposalDocument = {
+  layout: SchemaLayout;
+  annotations: readonly SchemaAnnotation[];
+};
+/** Objects that changed since the reviews were loaded, numbered so each change is seen once. */
+type TouchedObjects = { sequence: number; ids: ReadonlySet<string> };
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
@@ -449,10 +502,9 @@ function conflictText(
 
 function ProposalCard({
   proposal,
-  controls,
   labels,
   hasUnsavedChanges,
-  documentVersion,
+  touched,
   loadReview,
   onNavigate,
   onDecide,
@@ -461,13 +513,11 @@ function ProposalCard({
   failure,
 }: {
   proposal: CanvasProposal;
-  controls: CanvasProposalReviewControls;
   labels: SchemaCanvasLabels;
   hasUnsavedChanges: boolean;
-  documentVersion: string;
+  touched: TouchedObjects;
   loadReview: (
     proposal: CanvasProposal,
-    version: string,
     refresh?: boolean,
   ) => Promise<CanvasProposalReview>;
   onNavigate?: (location: CanvasProposalLocation) => void;
@@ -475,6 +525,7 @@ function ProposalCard({
     proposal: CanvasProposal,
     decision: CanvasReviewDecision,
     accept: boolean,
+    watched: readonly string[],
   ) => void;
   onRequestRebase?: (decision: CanvasReviewDecision) => Promise<void>;
   /** This card's decision is saving (or waiting for an earlier one to save). */
@@ -488,7 +539,21 @@ function ProposalCard({
   const latest = useRef({ proposal });
   latest.current = { proposal };
   const fingerprint = proposalKey(proposal);
-  const version = `${controls.revision}|${documentVersion}`;
+  // A review is loaded once. A decision or a save elsewhere on the canvas does
+  // not change it, and the server checks every decision against the live
+  // fields anyway. Only a change to an object this review writes reloads it.
+  const [refresh, setRefresh] = useState(0);
+  const watched = useMemo(
+    () => (review ? watchedObjects(review) : []),
+    [review],
+  );
+  const seen = useRef(touched.sequence);
+  useEffect(() => {
+    if (touched.sequence === seen.current) return;
+    seen.current = touched.sequence;
+    if (watched.some((id) => touched.ids.has(id)))
+      setRefresh((value) => value + 1);
+  }, [touched, watched]);
   useEffect(() => {
     // A new suggestion starts empty; a refresh keeps the current review visible.
     setReview((current) =>
@@ -499,7 +564,7 @@ function ProposalCard({
   }, [fingerprint]);
   useEffect(() => {
     let cancelled = false;
-    void loadReview(latest.current.proposal, version, attempt > 0).then(
+    void loadReview(latest.current.proposal, attempt > 0 || refresh > 0).then(
       (value) => {
         if (cancelled) return;
         setReview(value);
@@ -513,7 +578,7 @@ function ProposalCard({
     return () => {
       cancelled = true;
     };
-  }, [fingerprint, loadReview, attempt, version, failure]);
+  }, [fingerprint, loadReview, attempt, refresh, failure]);
   const exact = review && proposalKey(review.proposal) === fingerprint;
   // The service decides staleness per edited field. Unrelated saves never block.
   const stale = !!review?.stale;
@@ -549,6 +614,7 @@ function ProposalCard({
       proposal,
       { proposalId: proposal.id, reviewToken: review.reviewToken },
       accept,
+      watched,
     );
   };
   return (
@@ -690,13 +756,19 @@ export function CanvasProposalInbox({
   labels,
   hasUnsavedChanges,
   documentVersion = "",
+  document,
   onNavigate,
 }: {
   controls: CanvasProposalReviewControls;
   labels: SchemaCanvasLabels;
   hasUnsavedChanges: boolean;
-  /** Changes whenever the canvas saved its own edits, so open reviews refresh. */
+  /** Changes whenever the canvas saved its own edits. */
   documentVersion?: string;
+  /**
+   * The canvas's current layout and annotations. When `documentVersion`
+   * changes, only reviews that write a changed table or annotation reload.
+   */
+  document?: CanvasProposalDocument;
   onNavigate?: (location: CanvasProposalLocation) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -718,12 +790,28 @@ export function CanvasProposalInbox({
   const latest = useRef(controls);
   latest.current = controls;
   const requests = useRef(new Map<string, Promise<CanvasProposalReview>>());
+  const [touched, setTouched] = useState<TouchedObjects>(() => ({
+    sequence: 0,
+    ids: new Set(),
+  }));
+  const touch = useCallback((ids: Iterable<string>) => {
+    const set = new Set(ids);
+    if (set.size)
+      setTouched((current) => ({ sequence: current.sequence + 1, ids: set }));
+  }, []);
+  const savedDocument = useRef(document);
+  const latestDocument = useRef(document);
+  latestDocument.current = document;
+  useEffect(() => {
+    const before = savedDocument.current;
+    const after = latestDocument.current;
+    savedDocument.current = after;
+    if (before && after && before !== after)
+      touch(changedObjects(before, after));
+  }, [documentVersion, touch]);
   const loadReview = useCallback(
-    (proposal: CanvasProposal, version: string, refresh = false) => {
-      const key = canonicalCanvasJson({
-        proposal: proposalKey(proposal),
-        version,
-      });
+    (proposal: CanvasProposal, refresh = false) => {
+      const key = proposalKey(proposal);
       let request = requests.current.get(key);
       if (!request || refresh) {
         request = Promise.resolve()
@@ -749,21 +837,17 @@ export function CanvasProposalInbox({
     const active = new Set(
       controls.proposals
         .filter((proposal) => proposal.status === "pending")
-        .map((proposal) =>
-          canonicalCanvasJson({
-            proposal: proposalKey(proposal),
-            version: `${controls.revision}|${documentVersion}`,
-          }),
-        ),
+        .map(proposalKey),
     );
     for (const key of requests.current.keys())
       if (!active.has(key)) requests.current.delete(key);
-  }, [controls.proposals, controls.revision, documentVersion]);
+  }, [controls.proposals]);
   const onDecide = useCallback(
     (
       proposal: CanvasProposal,
       decision: CanvasReviewDecision,
       accept: boolean,
+      watched: readonly string[],
     ) => {
       setFailures((current) => {
         const next = new Map(current);
@@ -778,6 +862,8 @@ export function CanvasProposalInbox({
           if (accept) await latest.current.onAccept(decision);
           else await latest.current.onReject(decision);
           setDecided((current) => new Set(current).add(proposal.id));
+          // Only suggestions on the same objects can have changed.
+          if (accept) touch(watched);
         } catch (cause) {
           setFailures((current) =>
             new Map(current).set(
@@ -795,7 +881,7 @@ export function CanvasProposalInbox({
       };
       queue.current = queue.current.then(run, run);
     },
-    [],
+    [touch],
   );
   if (!pending.length) return null;
   return (
@@ -838,10 +924,9 @@ export function CanvasProposalInbox({
               <ProposalCard
                 key={`${proposal.id}:${failures.get(proposal.id) ?? ""}`}
                 proposal={proposal}
-                controls={controls}
                 labels={labels}
                 hasUnsavedChanges={hasUnsavedChanges}
-                documentVersion={documentVersion}
+                touched={touched}
                 loadReview={loadReview}
                 onDecide={onDecide}
                 {...(controls.onRequestRebase
